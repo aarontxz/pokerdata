@@ -132,6 +132,87 @@ function autoMergeSameBaseNamePlayers(raw: PlayerStats[]): PlayerStats[] {
   return Object.values(merged);
 }
 
+function normalizeForMatch(name: string): string {
+  return displayName(name).toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function levenshtein(a: string, b: string): number {
+  if (a === b) return 0;
+  if (a.length === 0) return b.length;
+  if (b.length === 0) return a.length;
+
+  const prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+  const curr = new Array<number>(b.length + 1);
+
+  for (let i = 1; i <= a.length; i += 1) {
+    curr[0] = i;
+    for (let j = 1; j <= b.length; j += 1) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      curr[j] = Math.min(
+        prev[j] + 1,
+        curr[j - 1] + 1,
+        prev[j - 1] + cost,
+      );
+    }
+    for (let j = 0; j <= b.length; j += 1) {
+      prev[j] = curr[j];
+    }
+  }
+
+  return prev[b.length];
+}
+
+function isSimilarName(a: string, b: string): boolean {
+  const na = normalizeForMatch(a);
+  const nb = normalizeForMatch(b);
+  if (!na || !nb) return false;
+  if (na === nb) return true;
+
+  const minLen = Math.min(na.length, nb.length);
+  if (minLen >= 4 && (na.includes(nb) || nb.includes(na))) return true;
+
+  const dist = levenshtein(na, nb);
+  if (minLen <= 5) return dist <= 1;
+  return dist <= 2;
+}
+
+function autoGroupBySimilarity(names: string[]): string[][] {
+  const sortedNames = names.slice().sort((a, b) => a.localeCompare(b));
+  if (sortedNames.length <= 1) return sortedNames.map((name) => [name]);
+
+  const parent = sortedNames.map((_, idx) => idx);
+
+  function find(x: number): number {
+    if (parent[x] !== x) parent[x] = find(parent[x]);
+    return parent[x];
+  }
+
+  function union(a: number, b: number) {
+    const ra = find(a);
+    const rb = find(b);
+    if (ra !== rb) parent[rb] = ra;
+  }
+
+  for (let i = 0; i < sortedNames.length; i += 1) {
+    for (let j = i + 1; j < sortedNames.length; j += 1) {
+      if (isSimilarName(sortedNames[i], sortedNames[j])) {
+        union(i, j);
+      }
+    }
+  }
+
+  const groupsByRoot: Record<number, string[]> = {};
+  for (let i = 0; i < sortedNames.length; i += 1) {
+    const root = find(i);
+    if (!groupsByRoot[root]) groupsByRoot[root] = [];
+    groupsByRoot[root].push(sortedNames[i]);
+  }
+
+  return Object.values(groupsByRoot)
+    .map((group) => group.sort((a, b) => a.localeCompare(b)))
+    .sort((a, b) => a[0].localeCompare(b[0]));
+}
+
 export default function PokerStats() {
   const [stats, setStats] = useState<PlayerStats[] | null>(null);
   const [rawStats, setRawStats] = useState<PlayerStats[] | null>(null);
@@ -177,6 +258,14 @@ export default function PokerStats() {
   }
 
   function skipAliases() {
+    setAliasModalOpen(false);
+  }
+
+  function autoGroupPlayers() {
+    if (!rawStats) return;
+    const groups = autoGroupBySimilarity(rawStats.map((p) => p.name));
+    setAliasGroups(groups);
+    setStats(mergeAliasedStats(rawStats, groups));
     setAliasModalOpen(false);
   }
 
@@ -266,43 +355,55 @@ export default function PokerStats() {
           </div>
         </>
       ) : (
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={clearAll}
-            className="rounded-lg bg-red-600 px-3 py-2 text-sm font-semibold text-white hover:bg-red-500"
-          >
-            Clear
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              if (!stats) return;
-              const sorted = [...stats].sort((a, b) => b.netChips - a.netChips);
-              const text = sorted
-                .map((p) => {
-                  const n = p.netChips;
-                  const formatted = (Math.abs(n) >= 1000
-                    ? (n < 0 ? "-" : "+") + Math.abs(n).toLocaleString("en-US")
-                    : (n >= 0 ? "+" : "") + n.toLocaleString("en-US"));
-                  return `${displayName(p.name)}: ${formatted}`;
-                })
-                .join("\n");
-              navigator.clipboard.writeText(text);
-              setCopied(true);
-              setTimeout(() => setCopied(false), 2000);
-            }}
-            className="w-32 rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-500"
-          >
-            {copied ? "✓ Copied!" : "Copy Ledger"}
-          </button>
-          <button
-            type="button"
-            onClick={() => setAliasModalOpen(true)}
-            className="rounded-lg bg-green-500 px-3 py-2 text-sm font-semibold text-zinc-950 hover:bg-green-400"
-          >
-            Group Same Players
-          </button>
+        <div className="flex flex-col gap-3 rounded-xl border border-zinc-800 bg-zinc-900/30 p-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setAliasModalOpen(true)}
+              className="rounded-lg border border-green-700 bg-green-950/40 px-3 py-2 text-sm font-semibold text-green-300 hover:bg-green-900/40"
+            >
+              Manually Group Same Players
+            </button>
+            <button
+              type="button"
+              onClick={autoGroupPlayers}
+              className="rounded-lg bg-green-500 px-3 py-2 text-sm font-semibold text-zinc-950 hover:bg-green-400"
+            >
+              Auto Group
+            </button>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+            <button
+              type="button"
+              onClick={() => {
+                if (!stats) return;
+                const sorted = [...stats].sort((a, b) => b.netChips - a.netChips);
+                const text = sorted
+                  .map((p) => {
+                    const n = p.netChips;
+                    const formatted = (Math.abs(n) >= 1000
+                      ? (n < 0 ? "-" : "+") + Math.abs(n).toLocaleString("en-US")
+                      : (n >= 0 ? "+" : "") + n.toLocaleString("en-US"));
+                    return `${displayName(p.name)}: ${formatted}`;
+                  })
+                  .join("\n");
+                navigator.clipboard.writeText(text);
+                setCopied(true);
+                setTimeout(() => setCopied(false), 2000);
+              }}
+              className="w-32 rounded-lg border border-blue-700 bg-blue-950/40 px-3 py-2 text-sm font-semibold text-blue-300 hover:bg-blue-900/40"
+            >
+              {copied ? "✓ Copied!" : "Copy Ledger"}
+            </button>
+            <button
+              type="button"
+              onClick={clearAll}
+              className="rounded-lg border border-red-700 bg-red-950/40 px-3 py-2 text-sm font-semibold text-red-300 hover:bg-red-900/40"
+            >
+              Clear
+            </button>
+          </div>
         </div>
       )}
 
