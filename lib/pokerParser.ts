@@ -34,6 +34,11 @@ interface HandState {
   pfrPlayers: Set<string>;
 }
 
+/** Round a chip value to 2 decimal places to avoid floating-point drift. */
+function r2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
 function extractPlayerName(action: string): string | null {
   const m = action.match(/^"([^"]+)"/);
   return m ? m[1] : null;
@@ -133,15 +138,15 @@ export function parsePokerLog(content: string): PlayerStats[] {
       delete stats[oldName];
     }
     if (netMovements[oldName] !== undefined) {
-      netMovements[newName] = (netMovements[newName] ?? 0) + netMovements[oldName];
+      netMovements[newName] = r2((netMovements[newName] ?? 0) + netMovements[oldName]);
       delete netMovements[oldName];
     }
     if (totalBuyIn[oldName] !== undefined) {
-      totalBuyIn[newName] = (totalBuyIn[newName] ?? 0) + totalBuyIn[oldName];
+      totalBuyIn[newName] = r2((totalBuyIn[newName] ?? 0) + totalBuyIn[oldName]);
       delete totalBuyIn[oldName];
     }
     if (totalCashOut[oldName] !== undefined) {
-      totalCashOut[newName] = (totalCashOut[newName] ?? 0) + totalCashOut[oldName];
+      totalCashOut[newName] = r2((totalCashOut[newName] ?? 0) + totalCashOut[oldName]);
       delete totalCashOut[oldName];
     }
     if (lastKnownStack[oldName] !== undefined) {
@@ -152,17 +157,17 @@ export function parsePokerLog(content: string): PlayerStats[] {
 
   function increaseBuyIn(name: string, amount: number, reason: string, handNumber: number) {
     if (amount <= 0) return;
-    totalBuyIn[name] = (totalBuyIn[name] ?? 0) + amount;
+    totalBuyIn[name] = r2((totalBuyIn[name] ?? 0) + amount);
   }
 
   function putIn(h: HandState, name: string, amount: number) {
-    h.streetPutIn[name] = (h.streetPutIn[name] ?? 0) + amount;
-    h.totalPutIn[name] = (h.totalPutIn[name] ?? 0) + amount;
+    h.streetPutIn[name] = r2((h.streetPutIn[name] ?? 0) + amount);
+    h.totalPutIn[name] = r2((h.totalPutIn[name] ?? 0) + amount);
   }
 
   // Dead blinds reduce stack and count toward net, but are not live chips for this street.
   function putInDead(h: HandState, name: string, amount: number) {
-    h.totalPutIn[name] = (h.totalPutIn[name] ?? 0) + amount;
+    h.totalPutIn[name] = r2((h.totalPutIn[name] ?? 0) + amount);
   }
 
   function resetStreet(h: HandState) {
@@ -180,13 +185,13 @@ export function parsePokerLog(content: string): PlayerStats[] {
   function finalizeHand(h: HandState) {
     for (const player of h.players) {
       const spent = h.totalPutIn[player] ?? 0;
-      const gained = (h.collected[player] ?? 0) + (h.uncalledReturned[player] ?? 0);
-      const handNet = gained - spent;
-      netMovements[player] = (netMovements[player] ?? 0) + handNet;
+      const gained = r2((h.collected[player] ?? 0) + (h.uncalledReturned[player] ?? 0));
+      const handNet = r2(gained - spent);
+      netMovements[player] = r2((netMovements[player] ?? 0) + handNet);
 
       // Keep lastKnownStack in sync so rebuy detection works on next hand
       if (lastKnownStack[player] !== undefined) {
-        lastKnownStack[player] += handNet;
+        lastKnownStack[player] = r2(lastKnownStack[player] + handNet);
       }
 
       if (h.vpipPlayers.has(player)) stats[player].vpipHands++;
@@ -202,7 +207,7 @@ export function parsePokerLog(content: string): PlayerStats[] {
       const cashOut = totalCashOut[player] ?? 0;
 
       const expected = finalStack + cashOut - buyIn;
-      if (net !== expected) {
+      if (Math.abs(net - expected) > 0.005) {
         // Build action log for this hand and player
         const playerActions = (handActionLog[h.handNumber] ?? []).filter((a) => a.player === player);
         const actionSummary = playerActions
@@ -287,15 +292,48 @@ export function parsePokerLog(content: string): PlayerStats[] {
       continue;
     }
 
+    // ── Admin approves a player rejoining with a specific stack ────────
+    // Example: The admin approved the player "Teddy @ ..." participation with a stack of 400.00.
+    const adminApprovedM = action.match(
+      /^The admin approved the player "([^"]+)" participation with a stack of ([\d.]+)\.?$/,
+    );
+    if (adminApprovedM) {
+      const name = adminApprovedM[1];
+      const stack = parseFloat(adminApprovedM[2]);
+      ensurePlayer(name);
+      if (lastKnownStack[name] === undefined) {
+        // Player is rejoining after quitting or joining fresh — record as buy-in.
+        increaseBuyIn(name, stack, "admin-approved-join", hand?.handNumber ?? -1);
+        lastKnownStack[name] = stack;
+      }
+      continue;
+    }
+
+    // ── Player joins the table with a stack ──────────────────────────
+    // Example: The player "Teddy @ ..." joined the game with a stack of 400.00.
+    const joinedM = action.match(
+      /^The player "([^"]+)" joined the game with a stack of ([\d.]+)\.?$/,
+    );
+    if (joinedM) {
+      const name = joinedM[1];
+      const stack = parseFloat(joinedM[2]);
+      ensurePlayer(name);
+      if (lastKnownStack[name] === undefined) {
+        increaseBuyIn(name, stack, "joined-game", hand?.handNumber ?? -1);
+        lastKnownStack[name] = stack;
+      }
+      continue;
+    }
+
     // ── Admin stack adjustments (cash-out / top-up) ─────────────────
     // Example: The admin updated the player "Ben @ ..." stack from 226 to 126.
     const adminStackUpdateM = action.match(
-      /^The admin updated the player "([^"]+)" stack from (\d+) to (\d+)\.?$/,
+      /^The admin updated the player "([^"]+)" stack from ([\d.]+) to ([\d.]+)\.?$/,
     );
     if (adminStackUpdateM) {
       const name = adminStackUpdateM[1];
-      const fromStack = parseInt(adminStackUpdateM[2]);
-      const toStack = parseInt(adminStackUpdateM[3]);
+      const fromStack = parseFloat(adminStackUpdateM[2]);
+      const toStack = parseFloat(adminStackUpdateM[3]);
       const delta = toStack - fromStack;
 
       ensurePlayer(name);
@@ -319,10 +357,10 @@ export function parsePokerLog(content: string): PlayerStats[] {
     }
 
     // ── Player sits out / sits back (status only, no cash movement) ─
-    const sitBackM = action.match(/^The player "([^"]+)" sit back with the stack of (\d+)\.?$/);
+    const sitBackM = action.match(/^The player "([^"]+)" sit back with the stack of ([\d.]+)\.?$/);
     if (sitBackM) {
       const name = sitBackM[1];
-      const stack = parseInt(sitBackM[2]);
+      const stack = parseFloat(sitBackM[2]);
       ensurePlayer(name);
       // Status change only: do not change buy-in/cash-out.
       lastKnownStack[name] = stack;
@@ -330,25 +368,29 @@ export function parsePokerLog(content: string): PlayerStats[] {
     }
 
     // ── Player leaves table with chips (cash out) ───────────────────
-    const quitM = action.match(/^The player "([^"]+)" quits the game with a stack of (\d+)\.?$/);
+    const quitM = action.match(/^The player "([^"]+)" quits the game with a stack of ([\d.]+)\.?$/);
     if (quitM) {
       const name = quitM[1];
-      const stack = parseInt(quitM[2]);
+      const stack = parseFloat(quitM[2]);
       // Only treat as cash-out if this player is currently tracked in-session.
       if (lastKnownStack[name] !== undefined) {
         ensurePlayer(name);
-        totalCashOut[name] = (totalCashOut[name] ?? 0) + stack;
+        totalCashOut[name] = r2((totalCashOut[name] ?? 0) + stack);
         delete lastKnownStack[name];
       }
       continue;
     }
 
-    const standUpM = action.match(/^The player "([^"]+)" stand up with the stack of (\d+)\.?$/);
+    const standUpM = action.match(/^The player "([^"]+)" stand up with the stack of ([\d.]+)\.?$/);
     if (standUpM) {
       const name = standUpM[1];
-      const stack = parseInt(standUpM[2]);
+      const stack = parseFloat(standUpM[2]);
       ensurePlayer(name);
-      // Status change only: do not change buy-in/cash-out.
+      if (lastKnownStack[name] === undefined && totalBuyIn[name] !== undefined) {
+        // Player had previously quit (lastKnownStack was deleted) but is now
+        // reappearing — record the stack as a new buy-in to avoid drift.
+        increaseBuyIn(name, stack, "standup-rejoin", hand?.handNumber ?? -1);
+      }
       lastKnownStack[name] = stack;
       continue;
     }
@@ -356,22 +398,22 @@ export function parsePokerLog(content: string): PlayerStats[] {
     // ── 7-2 bounty transfers (outside normal pot accounting) ────────
     // Example: "AAron ..." paid 3 for the 7-2 bounty to "Asher ..."
     const bountyPaidM = action.match(
-      /^"([^"]+)" paid (\d+) for the 7-2 bounty to "([^"]+)"/,
+      /^"([^"]+)" paid ([\d.]+) for the 7-2 bounty to "([^"]+)"/,
     );
     if (bountyPaidM) {
       const payer = bountyPaidM[1];
-      const amount = parseInt(bountyPaidM[2]);
+      const amount = parseFloat(bountyPaidM[2]);
       const receiver = bountyPaidM[3];
 
       ensurePlayer(payer);
       ensurePlayer(receiver);
 
-      netMovements[payer] = (netMovements[payer] ?? 0) - amount;
-      netMovements[receiver] = (netMovements[receiver] ?? 0) + amount;
+      netMovements[payer] = r2((netMovements[payer] ?? 0) - amount);
+      netMovements[receiver] = r2((netMovements[receiver] ?? 0) + amount);
 
       // Keep stack tracker aligned with non-pot chip transfers.
-      if (lastKnownStack[payer] !== undefined) lastKnownStack[payer] -= amount;
-      if (lastKnownStack[receiver] !== undefined) lastKnownStack[receiver] += amount;
+      if (lastKnownStack[payer] !== undefined) lastKnownStack[payer] = r2(lastKnownStack[payer] - amount);
+      if (lastKnownStack[receiver] !== undefined) lastKnownStack[receiver] = r2(lastKnownStack[receiver] + amount);
       continue;
     }
 
@@ -385,12 +427,12 @@ export function parsePokerLog(content: string): PlayerStats[] {
     // ── Player stacks (who's in this hand) ───────────────────────────
     const stacksM = action.match(/^Player stacks: (.+)$/);
     if (stacksM) {
-      const re = /"([^"]+)" \((\d+)\)/g;
+      const re = /"([^"]+)" \(([\d.]+)\)/g;
       let m: RegExpExecArray | null;
       hand.players = [];
       while ((m = re.exec(stacksM[1])) !== null) {
         const name = m[1];
-        const stack = parseInt(m[2]);
+        const stack = parseFloat(m[2]);
         hand.players.push(name);
         ensurePlayer(name);
         stats[name].handsDealt++;
@@ -423,49 +465,49 @@ export function parsePokerLog(content: string): PlayerStats[] {
     }
 
     // ── Blind posts (NOT voluntary for VPIP) ─────────────────────────
-    const sbM = action.match(/^"([^"]+)" posts a small blind of (\d+)/);
+    const sbM = action.match(/^"([^"]+)" posts a small blind of ([\d.]+)/);
     if (sbM) {
       hand.sbPlayer = sbM[1];
-      const amount = parseInt(sbM[2]);
+      const amount = parseFloat(sbM[2]);
       putIn(hand, sbM[1], amount);
       logAction(hand.handNumber, sbM[1], "small-blind", amount);
       hand.streetTarget = Math.max(hand.streetTarget, hand.streetPutIn[sbM[1]] ?? 0);
       continue;
     }
 
-    const missingSbM = action.match(/^"([^"]+)" posts a missing small blind of (\d+)/);
+    const missingSbM = action.match(/^"([^"]+)" posts a missing small blind of ([\d.]+)/);
     if (missingSbM) {
       const name = missingSbM[1];
-      const amount = parseInt(missingSbM[2]);
+      const amount = parseFloat(missingSbM[2]);
       putInDead(hand, name, amount);
       logAction(hand.handNumber, name, "missing-small-blind", amount);
       continue;
     }
 
-    const bbM = action.match(/^"([^"]+)" posts a big blind of (\d+)/);
+    const bbM = action.match(/^"([^"]+)" posts a big blind of ([\d.]+)/);
     if (bbM) {
       hand.bbPlayer = bbM[1];
-      const amount = parseInt(bbM[2]);
+      const amount = parseFloat(bbM[2]);
       putIn(hand, bbM[1], amount);
       logAction(hand.handNumber, bbM[1], "big-blind", amount);
       hand.streetTarget = Math.max(hand.streetTarget, hand.streetPutIn[bbM[1]] ?? 0);
       continue;
     }
 
-    const missingBbM = action.match(/^"([^"]+)" posts a missing big blind of (\d+)/);
+    const missingBbM = action.match(/^"([^"]+)" posts a missing big blind of ([\d.]+)/);
     if (missingBbM) {
       const name = missingBbM[1];
-      const amount = parseInt(missingBbM[2]);
+      const amount = parseFloat(missingBbM[2]);
       putIn(hand, name, amount);
       logAction(hand.handNumber, name, "missing-big-blind", amount);
       hand.streetTarget = Math.max(hand.streetTarget, hand.streetPutIn[name] ?? 0);
       continue;
     }
 
-    const missedBbM = action.match(/^"([^"]+)" posts a missed big blind of (\d+)/);
+    const missedBbM = action.match(/^"([^"]+)" posts a missed big blind of ([\d.]+)/);
     if (missedBbM) {
       const name = missedBbM[1];
-      const amount = parseInt(missedBbM[2]);
+      const amount = parseFloat(missedBbM[2]);
       putIn(hand, name, amount);
       logAction(hand.handNumber, name, "missed-big-blind", amount);
       hand.streetTarget = Math.max(hand.streetTarget, hand.streetPutIn[name] ?? 0);
@@ -473,9 +515,9 @@ export function parsePokerLog(content: string): PlayerStats[] {
     }
 
     // Straddle counts as voluntary
-    const straddleM = action.match(/^"([^"]+)" posts a straddle of (\d+)/);
+    const straddleM = action.match(/^"([^"]+)" posts a straddle of ([\d.]+)/);
     if (straddleM) {
-      putIn(hand, straddleM[1], parseInt(straddleM[2]));
+      putIn(hand, straddleM[1], parseFloat(straddleM[2]));
       hand.streetTarget = Math.max(hand.streetTarget, hand.streetPutIn[straddleM[1]] ?? 0);
       if (hand.phase === "preflop") hand.vpipPlayers.add(straddleM[1]);
       continue;
@@ -483,19 +525,19 @@ export function parsePokerLog(content: string): PlayerStats[] {
 
     // Bomb pot: everyone forced to post — skip VPIP for whole hand by not adding them
     // (They get added to totalPutIn via a "posts X for bomb pot" style line)
-    const bombM = action.match(/^"([^"]+)" posts (\d+) for the bomb pot/);
+    const bombM = action.match(/^"([^"]+)" posts ([\d.]+) for the bomb pot/);
     if (bombM) {
-      putIn(hand, bombM[1], parseInt(bombM[2]));
+      putIn(hand, bombM[1], parseFloat(bombM[2]));
       hand.streetTarget = Math.max(hand.streetTarget, hand.streetPutIn[bombM[1]] ?? 0);
       // NOT voluntary — do not add to vpipPlayers
       continue;
     }
 
     // Bomb pot bet variant: "posts a bet of X (bomb pot bet)"
-    const bombBetM = action.match(/^"([^"]+)" posts a bet of (\d+) \(bomb pot bet\)/);
+    const bombBetM = action.match(/^"([^"]+)" posts a bet of ([\d.]+) \(bomb pot bet\)/);
     if (bombBetM) {
       const name = bombBetM[1];
-      const amount = parseInt(bombBetM[2]);
+      const amount = parseFloat(bombBetM[2]);
       putIn(hand, name, amount);
       logAction(hand.handNumber, name, "bomb-pot-bet", amount);
       hand.streetTarget = Math.max(hand.streetTarget, hand.streetPutIn[name] ?? 0);
@@ -504,10 +546,10 @@ export function parsePokerLog(content: string): PlayerStats[] {
     }
 
     // Bomb pot call variant: "calls X (bomb pot bet)"
-    const bombCallM = action.match(/^"([^"]+)" calls (\d+) \(bomb pot bet\)/);
+    const bombCallM = action.match(/^"([^"]+)" calls ([\d.]+) \(bomb pot bet\)/);
     if (bombCallM) {
       const name = bombCallM[1];
-      const amount = parseInt(bombCallM[2]);
+      const amount = parseFloat(bombCallM[2]);
       putIn(hand, name, amount);
       logAction(hand.handNumber, name, "bomb-pot-call", amount);
       // NOT voluntary — do not add to vpipPlayers
@@ -520,10 +562,10 @@ export function parsePokerLog(content: string): PlayerStats[] {
     // 2) add X chips now.
     // We resolve by checking which interpretation matches current street target.
     // "calls X" or "calls X and is all in"
-    const callM = action.match(/^"([^"]+)" calls (\d+)/);
+    const callM = action.match(/^"([^"]+)" calls ([\d.]+)/);
     if (callM) {
       const name = callM[1];
-      const callValue = parseInt(callM[2]);
+      const callValue = parseFloat(callM[2]);
       const alreadyIn = hand.streetPutIn[name] ?? 0;
       const callToTotal = Math.max(alreadyIn, callValue);
       const finalIfToTotal = callToTotal;
@@ -568,11 +610,11 @@ export function parsePokerLog(content: string): PlayerStats[] {
     // ── Bet ──────────────────────────────────────────────────────────
     // "bets X" or "bets X and is all in" or "bets and is all in with X"
     const betM =
-      action.match(/^"([^"]+)" bets (\d+)/) ??
-      action.match(/^"([^"]+)" bets and is all in with (\d+)/);
+      action.match(/^"([^"]+)" bets ([\d.]+)/) ??
+      action.match(/^"([^"]+)" bets and is all in with ([\d.]+)/);
     if (betM) {
       const name = betM[1];
-      const amount = parseInt(betM[2]);
+      const amount = parseFloat(betM[2]);
       putIn(hand, name, amount);
       logAction(hand.handNumber, name, "bet", amount);
       hand.streetTarget = Math.max(hand.streetTarget, hand.streetPutIn[name] ?? 0);
@@ -588,11 +630,11 @@ export function parsePokerLog(content: string): PlayerStats[] {
     // ── Raise ────────────────────────────────────────────────────────
     // "raises to X" (total on street) or "raises and is all in with X"
     const raiseToM =
-      action.match(/^"([^"]+)" raises to (\d+)/) ??
-      action.match(/^"([^"]+)" raises and is all in with (\d+)/);
+      action.match(/^"([^"]+)" raises to ([\d.]+)/) ??
+      action.match(/^"([^"]+)" raises and is all in with ([\d.]+)/);
     if (raiseToM) {
       const name = raiseToM[1];
-      const raiseTo = parseInt(raiseToM[2]);
+      const raiseTo = parseFloat(raiseToM[2]);
       const alreadyIn = hand.streetPutIn[name] ?? 0;
       const additional = Math.max(0, raiseTo - alreadyIn);
       hand.streetPutIn[name] = raiseTo;
@@ -609,20 +651,20 @@ export function parsePokerLog(content: string): PlayerStats[] {
     }
 
     // ── Collected from pot ───────────────────────────────────────────
-    const collectedM = action.match(/^"([^"]+)" collected (\d+) from pot/);
+    const collectedM = action.match(/^"([^"]+)" collected ([\d.]+) from pot/);
     if (collectedM) {
       const name = collectedM[1];
-      const amount = parseInt(collectedM[2]);
+      const amount = parseFloat(collectedM[2]);
       hand.collected[name] = (hand.collected[name] ?? 0) + amount;
       logAction(hand.handNumber, name, "collected", amount);
       continue;
     }
 
     // ── Uncalled bet returned ────────────────────────────────────────
-    const uncalledM = action.match(/^Uncalled bet of (\d+) returned to "([^"]+)"/);
+    const uncalledM = action.match(/^Uncalled bet of ([\d.]+) returned to "([^"]+)"/);
     if (uncalledM) {
       const name = uncalledM[2];
-      const amount = parseInt(uncalledM[1]);
+      const amount = parseFloat(uncalledM[1]);
       hand.uncalledReturned[name] =
         (hand.uncalledReturned[name] ?? 0) + amount;
       logAction(hand.handNumber, name, "uncalled-returned", amount);

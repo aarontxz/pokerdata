@@ -233,7 +233,8 @@ export default function PokerStats() {
     const reader = new FileReader();
     reader.onload = (e) => {
       try {
-        const text = e.target?.result as string;
+        const rawText = e.target?.result as string;
+        const text = rawText.split("\n").slice(0).join("\n");
         const result = parsePokerLog(text);
         if (result.length === 0) {
           setError("No player data found. Make sure the file is a valid poker log.");
