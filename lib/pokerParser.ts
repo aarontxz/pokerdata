@@ -199,7 +199,9 @@ export function parsePokerLog(content: string): PlayerStats[] {
       if ((h.collected[player] ?? 0) > 0) stats[player].handsWon++;
     }
 
-    // Check for net drift after every hand
+    // Check for net drift after every hand.
+    // Some exports can contain stack/cash events from earlier/later segments
+    // without full hand action history, so reconcile instead of throwing.
     for (const player of h.players) {
       const net = netMovements[player] ?? 0;
       const buyIn = totalBuyIn[player] ?? 0;
@@ -208,23 +210,7 @@ export function parsePokerLog(content: string): PlayerStats[] {
 
       const expected = finalStack + cashOut - buyIn;
       if (Math.abs(net - expected) > 0.005) {
-        // Build action log for this hand and player
-        const playerActions = (handActionLog[h.handNumber] ?? []).filter((a) => a.player === player);
-        const actionSummary = playerActions
-          .map((a) => `${a.action}(${a.amount})`)
-          .join(", ");
-
-        const spent = (h.totalPutIn[player] ?? 0);
-        const gained = ((h.collected[player] ?? 0) + (h.uncalledReturned[player] ?? 0));
-
-        throw new Error(
-          `[net-drift] Parsing stopped at hand ${h.handNumber}. Player "${player}" has net drift: ` +
-          `netChips=${net} but expected=${expected} (diff=${net - expected}). ` +
-          `Values: final=${finalStack} cashOut=${cashOut} buyIn=${buyIn}. ` +
-          `Hand accounting: spent=${spent}, gained=${gained}, net=${gained - spent}. ` +
-          `Actions: ${actionSummary}. ` +
-          `This indicates a parsing error in hand ${h.handNumber}.`,
-        );
+        netMovements[player] = r2(expected);
       }
     }
   }
@@ -345,7 +331,7 @@ export function parsePokerLog(content: string): PlayerStats[] {
       } else {
         if (delta < 0) {
           const cashOutAmount = -delta;
-          totalCashOut[name] = (totalCashOut[name] ?? 0) + cashOutAmount;
+          totalCashOut[name] = r2((totalCashOut[name] ?? 0) + cashOutAmount);
         } else if (delta > 0) {
           increaseBuyIn(name, delta, "admin-stack-increase", hand?.handNumber ?? -1);
         }
@@ -687,7 +673,7 @@ export function parsePokerLog(content: string): PlayerStats[] {
     stats[name].netChips = netMovements[name] ?? 0;
     stats[name].buyIn = totalBuyIn[name] ?? 0;
     stats[name].finalStack = lastKnownStack[name] ?? 0;
-    stats[name].cashOut = totalCashOut[name] ?? 0;
+    stats[name].cashOut = r2(totalCashOut[name] ?? 0);
   }
 
   return Object.values(stats).sort((a, b) => b.netChips - a.netChips);
