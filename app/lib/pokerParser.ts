@@ -3,6 +3,7 @@ export interface PlayerStats {
   handsDealt: number;
   vpipHands: number;
   pfrHands: number;
+  sawFlopHands: number;
   aggActions: number; // bets + raises
   callActions: number;
   handsWon: number;
@@ -12,8 +13,37 @@ export interface PlayerStats {
   cashOut: number;
 }
 
+export interface PreflopRaiseRecord {
+  handNumber: number;
+  handId: string | null;
+  raiseTo: number;
+  raiseSize: number;
+  raiseOverPrevBet: number;
+  isReraise: boolean;
+  preflopRaiseNumber: number;
+  preflopBetLevel: number;
+  holeCards: [string, string] | null;
+}
+
+export interface PokerLogParseResult {
+  players: PlayerStats[];
+  preflopRaisesByPlayer: Record<string, PreflopRaiseRecord[]>;
+  sawFlopHandsByPlayer: Record<string, number[]>;
+  noFlopHandsByPlayer: Record<string, number[]>;
+}
+
+interface HandPreflopRaiseEvent {
+  player: string;
+  raiseTo: number;
+  raiseSize: number;
+  raiseOverPrevBet: number;
+  preflopRaiseNumber: number;
+  preflopBetLevel: number;
+}
+
 interface HandState {
   handNumber: number;
+  handId: string | null;
   players: string[];
   sbPlayer: string | null;
   bbPlayer: string | null;
@@ -32,6 +62,12 @@ interface HandState {
   vpipPlayers: Set<string>;
   // Players who raised preflop
   pfrPlayers: Set<string>;
+  // Players who folded preflop in this hand.
+  preflopFolders: Set<string>;
+  // Preflop raise events for this hand (open raise, 3-bet, etc.)
+  preflopRaises: HandPreflopRaiseEvent[];
+  // Hole cards revealed at showdown for this hand.
+  shownCards: Record<string, [string, string]>;
 }
 
 /** Round a chip value to 2 decimal places to avoid floating-point drift. */
@@ -71,6 +107,10 @@ function parseEventLine(line: string, useTab: boolean): { action: string; seqStr
 }
 
 export function parsePokerLog(content: string): PlayerStats[] {
+  return parsePokerLogDetailed(content).players;
+}
+
+export function parsePokerLogDetailed(content: string): PokerLogParseResult {
   const rawLines = content.split(/\r?\n/).filter((l) => l.trim() !== "");
 
   // Auto-detect delimiter: tab-separated or comma-separated (CSV)
@@ -100,6 +140,9 @@ export function parsePokerLog(content: string): PlayerStats[] {
   const totalCashOut: Record<string, number> = {};
   const lastKnownStack: Record<string, number> = {};
   const hasInHandBaseline: Record<string, boolean> = {};
+  const preflopRaisesByPlayer: Record<string, PreflopRaiseRecord[]> = {};
+  const sawFlopHandsByPlayer: Record<string, number[]> = {};
+  const noFlopHandsByPlayer: Record<string, number[]> = {};
 
   // Track action log for debugging specific hands
   const handActionLog: Record<number, { player: string; action: string; amount: number }[]> = {};
@@ -113,6 +156,7 @@ export function parsePokerLog(content: string): PlayerStats[] {
         handsDealt: 0,
         vpipHands: 0,
         pfrHands: 0,
+        sawFlopHands: 0,
         aggActions: 0,
         callActions: 0,
         handsWon: 0,
@@ -124,6 +168,9 @@ export function parsePokerLog(content: string): PlayerStats[] {
     }
     if (netMovements[name] === undefined) netMovements[name] = 0;
     if (hasInHandBaseline[name] === undefined) hasInHandBaseline[name] = false;
+    if (preflopRaisesByPlayer[name] === undefined) preflopRaisesByPlayer[name] = [];
+    if (sawFlopHandsByPlayer[name] === undefined) sawFlopHandsByPlayer[name] = [];
+    if (noFlopHandsByPlayer[name] === undefined) noFlopHandsByPlayer[name] = [];
   }
 
   // Merges all accumulated data from oldName into newName (for ID changes).
@@ -134,6 +181,7 @@ export function parsePokerLog(content: string): PlayerStats[] {
       stats[newName].handsDealt += stats[oldName].handsDealt;
       stats[newName].vpipHands += stats[oldName].vpipHands;
       stats[newName].pfrHands += stats[oldName].pfrHands;
+      stats[newName].sawFlopHands += stats[oldName].sawFlopHands;
       stats[newName].aggActions += stats[oldName].aggActions;
       stats[newName].callActions += stats[oldName].callActions;
       stats[newName].handsWon += stats[oldName].handsWon;
@@ -158,6 +206,20 @@ export function parsePokerLog(content: string): PlayerStats[] {
     if (hasInHandBaseline[oldName] !== undefined) {
       hasInHandBaseline[newName] = hasInHandBaseline[oldName];
       delete hasInHandBaseline[oldName];
+    }
+    if (sawFlopHandsByPlayer[oldName] !== undefined) {
+      sawFlopHandsByPlayer[newName] = [
+        ...(sawFlopHandsByPlayer[newName] ?? []),
+        ...sawFlopHandsByPlayer[oldName],
+      ];
+      delete sawFlopHandsByPlayer[oldName];
+    }
+    if (noFlopHandsByPlayer[oldName] !== undefined) {
+      noFlopHandsByPlayer[newName] = [
+        ...(noFlopHandsByPlayer[newName] ?? []),
+        ...noFlopHandsByPlayer[oldName],
+      ];
+      delete noFlopHandsByPlayer[oldName];
     }
   }
 
@@ -202,7 +264,28 @@ export function parsePokerLog(content: string): PlayerStats[] {
 
       if (h.vpipPlayers.has(player)) stats[player].vpipHands++;
       if (h.pfrPlayers.has(player)) stats[player].pfrHands++;
+      if (!h.preflopFolders.has(player)) {
+        stats[player].sawFlopHands++;
+        sawFlopHandsByPlayer[player].push(h.handNumber);
+      } else {
+        noFlopHandsByPlayer[player].push(h.handNumber);
+      }
       if ((h.collected[player] ?? 0) > 0) stats[player].handsWon++;
+    }
+
+    for (const raise of h.preflopRaises) {
+      const shown = h.shownCards[raise.player] ?? null;
+      preflopRaisesByPlayer[raise.player].push({
+        handNumber: h.handNumber,
+        handId: h.handId,
+        raiseTo: r2(raise.raiseTo),
+        raiseSize: r2(raise.raiseSize),
+        raiseOverPrevBet: r2(raise.raiseOverPrevBet),
+        isReraise: raise.preflopRaiseNumber > 1,
+        preflopRaiseNumber: raise.preflopRaiseNumber,
+        preflopBetLevel: raise.preflopBetLevel,
+        holeCards: shown,
+      });
     }
 
     // Check for net drift after every hand
@@ -237,10 +320,11 @@ export function parsePokerLog(content: string): PlayerStats[] {
 
   for (const { action } of events) {
     // ── Hand start ───────────────────────────────────────────────────
-    const startM = action.match(/^-- starting hand #(\d+)/);
+    const startM = action.match(/^-- starting hand #(\d+)(?: \(id: ([^)]+)\))?/);
     if (startM) {
       hand = {
         handNumber: parseInt(startM[1]),
+        handId: startM[2] ?? null,
         players: [],
         sbPlayer: null,
         bbPlayer: null,
@@ -252,6 +336,9 @@ export function parsePokerLog(content: string): PlayerStats[] {
         uncalledReturned: {},
         vpipPlayers: new Set(),
         pfrPlayers: new Set(),
+        preflopFolders: new Set(),
+        preflopRaises: [],
+        shownCards: {},
       };
       continue;
     }
@@ -524,6 +611,15 @@ export function parsePokerLog(content: string): PlayerStats[] {
       continue;
     }
 
+    // ── Fold ─────────────────────────────────────────────────────────
+    const foldM = action.match(/^"([^"]+)" folds/);
+    if (foldM) {
+      if (hand.phase === "preflop") {
+        hand.preflopFolders.add(foldM[1]);
+      }
+      continue;
+    }
+
     // Straddle counts as voluntary
     const straddleM = action.match(/^"([^"]+)" posts a straddle of ([\d.]+)/);
     if (straddleM) {
@@ -640,23 +736,46 @@ export function parsePokerLog(content: string): PlayerStats[] {
     // ── Raise ────────────────────────────────────────────────────────
     // "raises to X" (total on street) or "raises and is all in with X"
     const raiseToM =
-      action.match(/^"([^"]+)" raises to ([\d.]+)/) ??
-      action.match(/^"([^"]+)" raises and is all in with ([\d.]+)/);
+      action.match(/^"([^"]+)" raises to ([\d.]+)(?: and go all in)?/) ??
+      action.match(/^"([^"]+)" raises and is all in with ([\d.]+)/) ??
+      action.match(/^"([^"]+)" raises and go all in with ([\d.]+)/);
     if (raiseToM) {
       const name = raiseToM[1];
       const raiseTo = parseFloat(raiseToM[2]);
+      const prevTarget = hand.streetTarget;
       const alreadyIn = hand.streetPutIn[name] ?? 0;
       const additional = Math.max(0, raiseTo - alreadyIn);
+      const raiseOverPrevBet = Math.max(0, raiseTo - prevTarget);
       hand.streetPutIn[name] = raiseTo;
       hand.streetTarget = Math.max(hand.streetTarget, raiseTo);
       hand.totalPutIn[name] = (hand.totalPutIn[name] ?? 0) + additional;
       logAction(hand.handNumber, name, `raise-to-${raiseTo}`, additional);
       if (hand.phase === "preflop") {
+        const preflopRaiseNumber = hand.preflopRaises.length + 1;
+        const preflopBetLevel = preflopRaiseNumber + 1; // First raise is a 2-bet (open raise)
         hand.vpipPlayers.add(name);
         hand.pfrPlayers.add(name);
+        hand.preflopRaises.push({
+          player: name,
+          raiseTo,
+          raiseSize: additional,
+          raiseOverPrevBet,
+          preflopRaiseNumber,
+          preflopBetLevel,
+        });
       }
       ensurePlayer(name);
       stats[name].aggActions++;
+      continue;
+    }
+
+    // ── Showdown hole cards ─────────────────────────────────────────
+    const showsM = action.match(/^"([^"]+)" shows a ([^,]+),\s*([^.]+)\.?$/);
+    if (showsM) {
+      const name = showsM[1];
+      const c1 = showsM[2].trim();
+      const c2 = showsM[3].trim();
+      hand.shownCards[name] = [c1, c2];
       continue;
     }
 
@@ -700,5 +819,10 @@ export function parsePokerLog(content: string): PlayerStats[] {
     stats[name].cashOut = totalCashOut[name] ?? 0;
   }
 
-  return Object.values(stats).sort((a, b) => b.netChips - a.netChips);
+  return {
+    players: Object.values(stats).sort((a, b) => b.netChips - a.netChips),
+    preflopRaisesByPlayer,
+    sawFlopHandsByPlayer,
+    noFlopHandsByPlayer,
+  };
 }

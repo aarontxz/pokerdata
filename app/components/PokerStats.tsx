@@ -1,8 +1,14 @@
 "use client";
 
 import { useState, useCallback, useRef } from "react";
-import { parsePokerLog, type PlayerStats } from "../lib/pokerParser";
+import {
+  parsePokerLogDetailed,
+  type PlayerStats,
+  type PreflopRaiseRecord,
+} from "../lib/pokerParser";
 import PlayerAliasModal from "./PlayerAliasModal";
+import PlayerRaiseModal from "./PlayerRaiseModal";
+import PlayerSeeFlopModal from "./PlayerSeeFlopModal";
 
 type SortKey = keyof PlayerStats;
 
@@ -31,6 +37,9 @@ function sign(n: number): string {
   return `${n}`;
 }
 
+type RaiseMap = Record<string, PreflopRaiseRecord[]>;
+type HandNumberMap = Record<string, number[]>;
+
 const COLUMNS: { key: SortKey; label: string; title: string }[] = [
   { key: "name", label: "Player", title: "Player name" },
   { key: "handsDealt", label: "Hands", title: "Hands dealt" },
@@ -38,6 +47,7 @@ const COLUMNS: { key: SortKey; label: string; title: string }[] = [
   { key: "cashOut", label: "Cash Out", title: "Chips removed from table" },
   { key: "finalStack", label: "Final", title: "Final chip stack" },
   { key: "netChips", label: "Net", title: "Net chip gain/loss" },
+  { key: "sawFlopHands", label: "See Flop%", title: "Did not fold preflop %" },
   { key: "vpipHands", label: "VPIP%", title: "Voluntarily Put money In Pot %" },
   { key: "pfrHands", label: "PFR%", title: "Preflop Raise %" },
   { key: "aggActions", label: "AF", title: "Aggression Factor = (bets+raises) / calls" },
@@ -71,6 +81,7 @@ function mergeAliasedStats(raw: PlayerStats[], groups: string[][]): PlayerStats[
         handsDealt: 0,
         vpipHands: 0,
         pfrHands: 0,
+        sawFlopHands: 0,
         aggActions: 0,
         callActions: 0,
         handsWon: 0,
@@ -84,6 +95,7 @@ function mergeAliasedStats(raw: PlayerStats[], groups: string[][]): PlayerStats[
     merged[alias].handsDealt += player.handsDealt;
     merged[alias].vpipHands += player.vpipHands;
     merged[alias].pfrHands += player.pfrHands;
+    merged[alias].sawFlopHands += player.sawFlopHands;
     merged[alias].aggActions += player.aggActions;
     merged[alias].callActions += player.callActions;
     merged[alias].handsWon += player.handsWon;
@@ -107,6 +119,7 @@ function autoMergeSameBaseNamePlayers(raw: PlayerStats[]): PlayerStats[] {
         handsDealt: 0,
         vpipHands: 0,
         pfrHands: 0,
+        sawFlopHands: 0,
         aggActions: 0,
         callActions: 0,
         handsWon: 0,
@@ -120,6 +133,7 @@ function autoMergeSameBaseNamePlayers(raw: PlayerStats[]): PlayerStats[] {
     merged[key].handsDealt += player.handsDealt;
     merged[key].vpipHands += player.vpipHands;
     merged[key].pfrHands += player.pfrHands;
+    merged[key].sawFlopHands += player.sawFlopHands;
     merged[key].aggActions += player.aggActions;
     merged[key].callActions += player.callActions;
     merged[key].handsWon += player.handsWon;
@@ -130,6 +144,96 @@ function autoMergeSameBaseNamePlayers(raw: PlayerStats[]): PlayerStats[] {
   }
 
   return Object.values(merged);
+}
+
+function autoMergeSameBaseNameRaises(raw: RaiseMap): RaiseMap {
+  const merged: RaiseMap = {};
+  for (const [name, records] of Object.entries(raw)) {
+    const key = baseName(name);
+    if (!merged[key]) merged[key] = [];
+    merged[key].push(...records);
+  }
+  for (const key of Object.keys(merged)) {
+    merged[key].sort((a, b) => a.handNumber - b.handNumber);
+  }
+  return merged;
+}
+
+function mergeAliasedRaises(raw: RaiseMap, groups: string[][]): RaiseMap {
+  const aliasByName: Record<string, string> = {};
+  const labelByAlias: Record<string, string> = {};
+
+  for (const group of groups) {
+    if (group.length === 0) continue;
+    const alias = group[0];
+    const label =
+      group.length === 1
+        ? displayName(alias)
+        : group.map((name) => displayName(name)).join(" / ");
+    for (const name of group) {
+      aliasByName[name] = alias;
+    }
+    labelByAlias[alias] = label;
+  }
+
+  const merged: RaiseMap = {};
+  for (const [name, records] of Object.entries(raw)) {
+    const alias = aliasByName[name] ?? name;
+    const label = labelByAlias[alias] ?? displayName(alias);
+    if (!merged[label]) merged[label] = [];
+    merged[label].push(...records);
+  }
+
+  for (const key of Object.keys(merged)) {
+    merged[key].sort((a, b) => a.handNumber - b.handNumber);
+  }
+
+  return merged;
+}
+
+function autoMergeSameBaseNameHandNumbers(raw: HandNumberMap): HandNumberMap {
+  const merged: HandNumberMap = {};
+  for (const [name, handNumbers] of Object.entries(raw)) {
+    const key = baseName(name);
+    if (!merged[key]) merged[key] = [];
+    merged[key].push(...handNumbers);
+  }
+  for (const key of Object.keys(merged)) {
+    merged[key] = [...new Set(merged[key])].sort((a, b) => a - b);
+  }
+  return merged;
+}
+
+function mergeAliasedHandNumbers(raw: HandNumberMap, groups: string[][]): HandNumberMap {
+  const aliasByName: Record<string, string> = {};
+  const labelByAlias: Record<string, string> = {};
+
+  for (const group of groups) {
+    if (group.length === 0) continue;
+    const alias = group[0];
+    const label =
+      group.length === 1
+        ? displayName(alias)
+        : group.map((name) => displayName(name)).join(" / ");
+    for (const name of group) {
+      aliasByName[name] = alias;
+    }
+    labelByAlias[alias] = label;
+  }
+
+  const merged: HandNumberMap = {};
+  for (const [name, handNumbers] of Object.entries(raw)) {
+    const alias = aliasByName[name] ?? name;
+    const label = labelByAlias[alias] ?? displayName(alias);
+    if (!merged[label]) merged[label] = [];
+    merged[label].push(...handNumbers);
+  }
+
+  for (const key of Object.keys(merged)) {
+    merged[key] = [...new Set(merged[key])].sort((a, b) => a - b);
+  }
+
+  return merged;
 }
 
 function normalizeForMatch(name: string): string {
@@ -216,6 +320,14 @@ function autoGroupBySimilarity(names: string[]): string[][] {
 export default function PokerStats() {
   const [stats, setStats] = useState<PlayerStats[] | null>(null);
   const [rawStats, setRawStats] = useState<PlayerStats[] | null>(null);
+  const [rawPreflopRaises, setRawPreflopRaises] = useState<RaiseMap | null>(null);
+  const [preflopRaises, setPreflopRaises] = useState<RaiseMap | null>(null);
+  const [selectedPlayer, setSelectedPlayer] = useState<string | null>(null);
+  const [rawSawFlopHands, setRawSawFlopHands] = useState<HandNumberMap | null>(null);
+  const [rawNoFlopHands, setRawNoFlopHands] = useState<HandNumberMap | null>(null);
+  const [sawFlopHands, setSawFlopHands] = useState<HandNumberMap | null>(null);
+  const [noFlopHands, setNoFlopHands] = useState<HandNumberMap | null>(null);
+  const [selectedSeeFlopPlayer, setSelectedSeeFlopPlayer] = useState<string | null>(null);
   const [aliasGroups, setAliasGroups] = useState<string[][]>([]);
   const [aliasModalOpen, setAliasModalOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -229,21 +341,39 @@ export default function PokerStats() {
     setError(null);
     setStats(null);
     setRawStats(null);
+    setRawPreflopRaises(null);
+    setPreflopRaises(null);
+    setSelectedPlayer(null);
+    setRawSawFlopHands(null);
+    setRawNoFlopHands(null);
+    setSawFlopHands(null);
+    setNoFlopHands(null);
+    setSelectedSeeFlopPlayer(null);
     setAliasModalOpen(false);
     const reader = new FileReader();
     reader.onload = (e) => {
       try {
         const rawText = e.target?.result as string;
         const text = rawText.split("\n").slice(0).join("\n");
-        const result = parsePokerLog(text);
+        const parsed = parsePokerLogDetailed(text);
+        const result = parsed.players;
         if (result.length === 0) {
           setError("No player data found. Make sure the file is a valid poker log.");
           return;
         }
         const canonical = autoMergeSameBaseNamePlayers(result);
+        const canonicalRaises = autoMergeSameBaseNameRaises(parsed.preflopRaisesByPlayer);
+        const canonicalSawFlopHands = autoMergeSameBaseNameHandNumbers(parsed.sawFlopHandsByPlayer);
+        const canonicalNoFlopHands = autoMergeSameBaseNameHandNumbers(parsed.noFlopHandsByPlayer);
         setRawStats(canonical);
+        setRawPreflopRaises(canonicalRaises);
+        setRawSawFlopHands(canonicalSawFlopHands);
+        setRawNoFlopHands(canonicalNoFlopHands);
         setAliasGroups(canonical.map((p) => [p.name]));
         setStats(canonical);
+        setPreflopRaises(canonicalRaises);
+        setSawFlopHands(canonicalSawFlopHands);
+        setNoFlopHands(canonicalNoFlopHands);
       } catch (err) {
         setError("Failed to parse the log file. " + String(err));
       }
@@ -255,6 +385,17 @@ export default function PokerStats() {
     if (!rawStats) return;
     setAliasGroups(groups);
     setStats(mergeAliasedStats(rawStats, groups));
+    if (rawPreflopRaises) {
+      setPreflopRaises(mergeAliasedRaises(rawPreflopRaises, groups));
+    }
+    if (rawSawFlopHands) {
+      setSawFlopHands(mergeAliasedHandNumbers(rawSawFlopHands, groups));
+    }
+    if (rawNoFlopHands) {
+      setNoFlopHands(mergeAliasedHandNumbers(rawNoFlopHands, groups));
+    }
+    setSelectedPlayer(null);
+    setSelectedSeeFlopPlayer(null);
     setAliasModalOpen(false);
   }
 
@@ -267,12 +408,31 @@ export default function PokerStats() {
     const groups = autoGroupBySimilarity(rawStats.map((p) => p.name));
     setAliasGroups(groups);
     setStats(mergeAliasedStats(rawStats, groups));
+    if (rawPreflopRaises) {
+      setPreflopRaises(mergeAliasedRaises(rawPreflopRaises, groups));
+    }
+    if (rawSawFlopHands) {
+      setSawFlopHands(mergeAliasedHandNumbers(rawSawFlopHands, groups));
+    }
+    if (rawNoFlopHands) {
+      setNoFlopHands(mergeAliasedHandNumbers(rawNoFlopHands, groups));
+    }
+    setSelectedPlayer(null);
+    setSelectedSeeFlopPlayer(null);
     setAliasModalOpen(false);
   }
 
   function clearAll() {
     setStats(null);
     setRawStats(null);
+    setRawPreflopRaises(null);
+    setPreflopRaises(null);
+    setSelectedPlayer(null);
+    setRawSawFlopHands(null);
+    setRawNoFlopHands(null);
+    setSawFlopHands(null);
+    setNoFlopHands(null);
+    setSelectedSeeFlopPlayer(null);
     setAliasGroups([]);
     setAliasModalOpen(false);
     setError(null);
@@ -309,6 +469,9 @@ export default function PokerStats() {
     if (key === "pfrHands") {
       return player.handsDealt === 0 ? 0 : (player.pfrHands / player.handsDealt) * 100;
     }
+    if (key === "sawFlopHands") {
+      return player.handsDealt === 0 ? 0 : (player.sawFlopHands / player.handsDealt) * 100;
+    }
     if (key === "aggActions") {
       return player.callActions === 0 ? (player.aggActions > 0 ? Infinity : 0) : player.aggActions / player.callActions;
     }
@@ -327,6 +490,92 @@ export default function PokerStats() {
         return sortAsc ? an - bn : bn - an;
       })
     : null;
+
+  const selectedRaises = selectedPlayer && preflopRaises
+    ? (preflopRaises[selectedPlayer] ?? []).filter((r) => r.holeCards !== null)
+    : [];
+
+  const selectedSawFlopHands = selectedSeeFlopPlayer && sawFlopHands
+    ? sawFlopHands[selectedSeeFlopPlayer] ?? []
+    : [];
+
+  const selectedNoFlopHands = selectedSeeFlopPlayer && noFlopHands
+    ? noFlopHands[selectedSeeFlopPlayer] ?? []
+    : [];
+
+  function renderCell(player: PlayerStats, key: SortKey) {
+    if (key === "name") {
+      return <span className="font-medium text-zinc-100 whitespace-nowrap">{displayName(player.name)}</span>;
+    }
+
+    if (key === "handsDealt") {
+      return <span className="text-zinc-300">{player.handsDealt}</span>;
+    }
+
+    if (key === "buyIn" || key === "cashOut" || key === "finalStack") {
+      return <span className="tabular-nums text-zinc-300">{player[key]}</span>;
+    }
+
+    if (key === "netChips") {
+      return (
+        <span
+          className={`font-semibold tabular-nums ${
+            player.netChips > 0
+              ? "text-green-400"
+              : player.netChips < 0
+              ? "text-red-400"
+              : "text-zinc-400"
+          }`}
+        >
+          {sign(player.netChips)}
+        </span>
+      );
+    }
+
+    if (key === "sawFlopHands") {
+      return (
+        <button
+          type="button"
+          onClick={() => setSelectedSeeFlopPlayer(player.name)}
+          className={`rounded px-1 tabular-nums transition-colors hover:text-green-300 ${
+            selectedSeeFlopPlayer === player.name ? "text-green-300" : "text-zinc-300"
+          }`}
+          title="Show hand numbers for saw flop vs did not see flop"
+        >
+          {pct(player.sawFlopHands, player.handsDealt)}
+        </button>
+      );
+    }
+
+    if (key === "vpipHands") {
+      return <span className="tabular-nums text-zinc-300">{pct(player.vpipHands, player.handsDealt)}</span>;
+    }
+
+    if (key === "pfrHands") {
+      return (
+        <button
+          type="button"
+          onClick={() => setSelectedPlayer(player.name)}
+          className={`rounded px-1 tabular-nums transition-colors hover:text-green-300 ${
+            selectedPlayer === player.name ? "text-green-300" : "text-zinc-300"
+          }`}
+          title="Show preflop raises and revealed cards"
+        >
+          {pct(player.pfrHands, player.handsDealt)}
+        </button>
+      );
+    }
+
+    if (key === "aggActions") {
+      return <span className="tabular-nums text-zinc-300">{af(player.aggActions, player.callActions)}</span>;
+    }
+
+    if (key === "handsWon") {
+      return <span className="tabular-nums text-zinc-300">{player.handsWon}</span>;
+    }
+
+    return <span className="text-zinc-300">{String(player[key])}</span>;
+  }
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100 p-6 font-sans">
@@ -463,36 +712,14 @@ export default function PokerStats() {
                   className={`border-t border-zinc-800 transition-colors hover:bg-zinc-800/50
                     ${i % 2 === 0 ? "bg-zinc-900/40" : "bg-zinc-900/10"}`}
                 >
-                  <td className="px-4 py-3 font-medium text-zinc-100 whitespace-nowrap">
-                    {displayName(p.name)}
-                  </td>
-                  <td className="px-4 py-3 text-zinc-300">{p.handsDealt}</td>
-                  <td className="px-4 py-3 tabular-nums text-zinc-300">{p.buyIn}</td>
-                  <td className="px-4 py-3 tabular-nums text-zinc-300">{p.cashOut}</td>
-                  <td className="px-4 py-3 tabular-nums text-zinc-300">{p.finalStack}</td>
-                  <td
-                    className={`px-4 py-3 font-semibold tabular-nums ${
-                      p.netChips > 0
-                        ? "text-green-400"
-                        : p.netChips < 0
-                        ? "text-red-400"
-                        : "text-zinc-400"
-                    }`}
-                  >
-                    {sign(p.netChips)}
-                  </td>
-                  <td className="px-4 py-3 tabular-nums text-zinc-300">
-                    {pct(p.vpipHands, p.handsDealt)}
-                  </td>
-                  <td className="px-4 py-3 tabular-nums text-zinc-300">
-                    {pct(p.pfrHands, p.handsDealt)}
-                  </td>
-                  <td className="px-4 py-3 tabular-nums text-zinc-300">
-                    {af(p.aggActions, p.callActions)}
-                  </td>
-                  <td className="px-4 py-3 tabular-nums text-zinc-300">
-                    {p.handsWon}
-                  </td>
+                  {COLUMNS.map((col) => (
+                    <td
+                      key={String(col.key)}
+                      className={`px-4 py-3 ${col.key === "name" ? "whitespace-nowrap" : ""}`}
+                    >
+                      {renderCell(p, col.key)}
+                    </td>
+                  ))}
                 </tr>
               ))}
             </tbody>
@@ -503,6 +730,21 @@ export default function PokerStats() {
         </div>
       )}
 
+      <PlayerRaiseModal
+        open={!!selectedPlayer}
+        playerName={selectedPlayer ? displayName(selectedPlayer) : ""}
+        raises={selectedRaises}
+        onClose={() => setSelectedPlayer(null)}
+      />
+
+      <PlayerSeeFlopModal
+        open={!!selectedSeeFlopPlayer}
+        playerName={selectedSeeFlopPlayer ? displayName(selectedSeeFlopPlayer) : ""}
+        sawFlopHands={selectedSawFlopHands}
+        noFlopHands={selectedNoFlopHands}
+        onClose={() => setSelectedSeeFlopPlayer(null)}
+      />
+
       {sorted && (
         <div className="mt-4 grid grid-cols-2 gap-3 text-xs text-zinc-500 sm:grid-cols-3 lg:grid-cols-6">
           <div><span className="text-zinc-400 font-medium">Buy-in</span> — total chips bought in (incl. rebuys)</div>
@@ -511,6 +753,7 @@ export default function PokerStats() {
           <div><span className="text-zinc-400 font-medium">Net</span> — final minus buy-in</div>
           <div><span className="text-zinc-400 font-medium">VPIP%</span> — voluntarily put money in pot preflop</div>
           <div><span className="text-zinc-400 font-medium">PFR%</span> — preflop raise %</div>
+          <div><span className="text-zinc-400 font-medium">See Flop%</span> — did not fold preflop / hands played</div>
           <div><span className="text-zinc-400 font-medium">AF</span> — aggression factor (bets+raises / calls)</div>
           <div><span className="text-zinc-400 font-medium">Won</span> — times collected from pot</div>
         </div>

@@ -1,1 +1,1 @@
-export { default } from "./PokerStats";
+export { default } from "./components/PokerStats";

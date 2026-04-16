@@ -115,6 +115,7 @@ export default function PlayerAliasModal({
   const [dragName, setDragName] = useState<string | null>(null);
   const [pickedName, setPickedName] = useState<string | null>(null);
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => {
     if (open) {
       if (initialGroups.length > 0) {
