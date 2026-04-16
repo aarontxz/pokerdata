@@ -99,6 +99,7 @@ export function parsePokerLog(content: string): PlayerStats[] {
   const totalBuyIn: Record<string, number> = {};
   const totalCashOut: Record<string, number> = {};
   const lastKnownStack: Record<string, number> = {};
+  const hasInHandBaseline: Record<string, boolean> = {};
 
   // Track action log for debugging specific hands
   const handActionLog: Record<number, { player: string; action: string; amount: number }[]> = {};
@@ -122,6 +123,7 @@ export function parsePokerLog(content: string): PlayerStats[] {
       };
     }
     if (netMovements[name] === undefined) netMovements[name] = 0;
+    if (hasInHandBaseline[name] === undefined) hasInHandBaseline[name] = false;
   }
 
   // Merges all accumulated data from oldName into newName (for ID changes).
@@ -152,6 +154,10 @@ export function parsePokerLog(content: string): PlayerStats[] {
     if (lastKnownStack[oldName] !== undefined) {
       lastKnownStack[newName] = lastKnownStack[oldName];
       delete lastKnownStack[oldName];
+    }
+    if (hasInHandBaseline[oldName] !== undefined) {
+      hasInHandBaseline[newName] = hasInHandBaseline[oldName];
+      delete hasInHandBaseline[oldName];
     }
   }
 
@@ -199,9 +205,7 @@ export function parsePokerLog(content: string): PlayerStats[] {
       if ((h.collected[player] ?? 0) > 0) stats[player].handsWon++;
     }
 
-    // Check for net drift after every hand.
-    // Some exports can contain stack/cash events from earlier/later segments
-    // without full hand action history, so reconcile instead of throwing.
+    // Check for net drift after every hand
     for (const player of h.players) {
       const net = netMovements[player] ?? 0;
       const buyIn = totalBuyIn[player] ?? 0;
@@ -210,7 +214,23 @@ export function parsePokerLog(content: string): PlayerStats[] {
 
       const expected = finalStack + cashOut - buyIn;
       if (Math.abs(net - expected) > 0.005) {
-        netMovements[player] = r2(expected);
+        // Build action log for this hand and player
+        const playerActions = (handActionLog[h.handNumber] ?? []).filter((a) => a.player === player);
+        const actionSummary = playerActions
+          .map((a) => `${a.action}(${a.amount})`)
+          .join(", ");
+
+        const spent = (h.totalPutIn[player] ?? 0);
+        const gained = ((h.collected[player] ?? 0) + (h.uncalledReturned[player] ?? 0));
+
+        throw new Error(
+          `[net-drift] Parsing stopped at hand ${h.handNumber}. Player "${player}" has net drift: ` +
+          `netChips=${net} but expected=${expected} (diff=${net - expected}). ` +
+          `Values: final=${finalStack} cashOut=${cashOut} buyIn=${buyIn}. ` +
+          `Hand accounting: spent=${spent}, gained=${gained}, net=${gained - spent}. ` +
+          `Actions: ${actionSummary}. ` +
+          `This indicates a parsing error in hand ${h.handNumber}.`,
+        );
       }
     }
   }
@@ -424,9 +444,13 @@ export function parsePokerLog(content: string): PlayerStats[] {
         stats[name].handsDealt++;
 
         const prevStack = lastKnownStack[name];
-        if (totalBuyIn[name] === undefined) {
-          // First in-hand stack snapshot for this player in this parsed session.
-          increaseBuyIn(name, stack, "initial-stack", hand.handNumber);
+        if (!hasInHandBaseline[name]) {
+          // Anchor accounting to the first in-hand stack snapshot. This prevents
+          // pre-hand administrative events from partial logs from causing drift.
+          totalBuyIn[name] = r2(stack);
+          totalCashOut[name] = 0;
+          netMovements[name] = 0;
+          hasInHandBaseline[name] = true;
         } else if (prevStack === undefined) {
           // Player reappeared after being untracked; treat as fresh table buy-in.
           increaseBuyIn(name, stack, "rejoin-stack", hand.handNumber);
@@ -673,7 +697,7 @@ export function parsePokerLog(content: string): PlayerStats[] {
     stats[name].netChips = netMovements[name] ?? 0;
     stats[name].buyIn = totalBuyIn[name] ?? 0;
     stats[name].finalStack = lastKnownStack[name] ?? 0;
-    stats[name].cashOut = r2(totalCashOut[name] ?? 0);
+    stats[name].cashOut = totalCashOut[name] ?? 0;
   }
 
   return Object.values(stats).sort((a, b) => b.netChips - a.netChips);
