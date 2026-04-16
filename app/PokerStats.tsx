@@ -302,10 +302,23 @@ export default function PokerStats() {
     }
   }
 
+  const getSortValue = (player: PlayerStats, key: SortKey): number | string => {
+    if (key === "vpipHands") {
+      return player.handsDealt === 0 ? 0 : (player.vpipHands / player.handsDealt) * 100;
+    }
+    if (key === "pfrHands") {
+      return player.handsDealt === 0 ? 0 : (player.pfrHands / player.handsDealt) * 100;
+    }
+    if (key === "aggActions") {
+      return player.callActions === 0 ? (player.aggActions > 0 ? Infinity : 0) : player.aggActions / player.callActions;
+    }
+    return player[key];
+  };
+
   const sorted = stats
     ? [...stats].sort((a, b) => {
-        const av = a[sortKey];
-        const bv = b[sortKey];
+        const av = getSortValue(a, sortKey);
+        const bv = getSortValue(b, sortKey);
         if (typeof av === "string" && typeof bv === "string") {
           return sortAsc ? av.localeCompare(bv) : bv.localeCompare(av);
         }
