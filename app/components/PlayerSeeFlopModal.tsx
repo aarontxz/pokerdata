@@ -1,15 +1,25 @@
 "use client";
 
+import type { HandReference } from "../lib/pokerParser";
+
 interface PlayerSeeFlopModalProps {
   open: boolean;
   playerName: string;
-  sawFlopHands: number[];
-  noFlopHands: number[];
+  sawFlopHands: HandReference[];
+  noFlopHands: HandReference[];
   onClose: () => void;
+  sessionCount?: number;
 }
 
-function uniqueSorted(nums: number[]): number[] {
-  return [...new Set(nums)].sort((a, b) => a - b);
+function sorted(handRefs: HandReference[]): HandReference[] {
+  return [...handRefs].sort((a, b) => a.sessionNumber - b.sessionNumber || a.handNumber - b.handNumber);
+}
+
+function formatHandRef(handRef: HandReference, sessionCount?: number): string {
+  if (sessionCount === 1) {
+    return `#${handRef.handNumber}`;
+  }
+  return `(#${handRef.sessionNumber},#${handRef.handNumber})`;
 }
 
 export default function PlayerSeeFlopModal({
@@ -18,11 +28,12 @@ export default function PlayerSeeFlopModal({
   sawFlopHands,
   noFlopHands,
   onClose,
+  sessionCount,
 }: PlayerSeeFlopModalProps) {
   if (!open) return null;
 
-  const saw = uniqueSorted(sawFlopHands);
-  const noFlop = uniqueSorted(noFlopHands);
+  const saw = sorted(sawFlopHands);
+  const noFlop = sorted(noFlopHands);
 
   return (
     <div
@@ -57,7 +68,7 @@ export default function PlayerSeeFlopModal({
               <p className="text-sm text-zinc-500">None</p>
             ) : (
               <div className="max-h-72 overflow-y-auto text-sm text-zinc-200">
-                {saw.join(", ")}
+                {saw.map((ref) => formatHandRef(ref, sessionCount)).join(", ")}
               </div>
             )}
           </div>
@@ -68,7 +79,7 @@ export default function PlayerSeeFlopModal({
               <p className="text-sm text-zinc-500">None</p>
             ) : (
               <div className="max-h-72 overflow-y-auto text-sm text-zinc-200">
-                {noFlop.join(", ")}
+                {noFlop.map((ref) => formatHandRef(ref, sessionCount)).join(", ")}
               </div>
             )}
           </div>

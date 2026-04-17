@@ -1,39 +1,46 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import type { PreflopRaiseRecord } from "../lib/pokerParser";
+import type { CBetRecord } from "../lib/pokerParser";
 
-interface PlayerRaiseModalProps {
+interface PlayerCBetModalProps {
   open: boolean;
   playerName: string;
-  raises: PreflopRaiseRecord[];
+  cbets: CBetRecord[];
   onClose: () => void;
   sessionCount?: number;
 }
 
-function preflopTypeLabel(r: PreflopRaiseRecord): string {
-  if (r.preflopBetLevel <= 2) return "Open raise (2-bet)";
-  return `${r.preflopBetLevel}-bet`;
-}
-
-function formatHandRef(r: PreflopRaiseRecord, sessionCount?: number): string {
+function formatHandRef(r: CBetRecord, sessionCount?: number): string {
   if (sessionCount === 1) {
     return `#${r.handNumber}`;
   }
   return `(#${r.sessionNumber},#${r.handNumber})`;
 }
 
-export default function PlayerRaiseModal({
+function formatHoleCards(r: CBetRecord): string {
+  return r.holeCards ? `${r.holeCards[0]} ${r.holeCards[1]}` : "-";
+}
+
+function formatFlop(r: CBetRecord): string {
+  return r.flopCards ? `${r.flopCards[0]} ${r.flopCards[1]} ${r.flopCards[2]}` : "-";
+}
+
+function fmtAmount(n: number): string {
+  return Number.isInteger(n) ? `${n}` : n.toFixed(2);
+}
+
+export default function PlayerCBetModal({
   open,
   playerName,
-  raises,
+  cbets,
   onClose,
   sessionCount,
-}: PlayerRaiseModalProps) {
-  const [sortBy, setSortBy] = useState<"hand" | "raiseTo" | "raiseOverPrevBet">("hand");
+}: PlayerCBetModalProps) {
+  const [sortBy, setSortBy] = useState<"hand" | "pot" | "cbetAmount">("hand");
   const [sortAsc, setSortAsc] = useState(true);
 
-  function toggleSort(next: "hand" | "raiseTo" | "raiseOverPrevBet") {
+  function toggleSort(next: "hand" | "pot" | "cbetAmount") {
     if (sortBy === next) {
       setSortAsc((v) => !v);
     } else {
@@ -42,23 +49,27 @@ export default function PlayerRaiseModal({
     }
   }
 
-  const sortedRaises = useMemo(() => {
-    const next = [...raises];
+  const sortedCBets = useMemo(() => {
+    const next = [...cbets];
     next.sort((a, b) => {
-      const av = sortBy === "hand"
-        ? a.sessionNumber * 1_000_000 + a.handNumber
-        : sortBy === "raiseTo"
-        ? a.raiseTo
-        : a.raiseOverPrevBet;
-      const bv = sortBy === "hand"
-        ? b.sessionNumber * 1_000_000 + b.handNumber
-        : sortBy === "raiseTo"
-        ? b.raiseTo
-        : b.raiseOverPrevBet;
+      let av: number;
+      let bv: number;
+
+      if (sortBy === "hand") {
+        av = a.sessionNumber * 1_000_000 + a.handNumber;
+        bv = b.sessionNumber * 1_000_000 + b.handNumber;
+      } else if (sortBy === "pot") {
+        av = a.potBeforeCBet;
+        bv = b.potBeforeCBet;
+      } else {
+        av = a.cbetAmount;
+        bv = b.cbetAmount;
+      }
+
       return sortAsc ? av - bv : bv - av;
     });
     return next;
-  }, [raises, sortBy, sortAsc]);
+  }, [cbets, sortBy, sortAsc]);
 
   if (!open) return null;
 
@@ -68,7 +79,7 @@ export default function PlayerRaiseModal({
       onClick={onClose}
       role="dialog"
       aria-modal="true"
-      aria-label={`Preflop raises for ${playerName}`}
+      aria-label={`Continuation bets for ${playerName}`}
     >
       <div
         className="w-full max-w-3xl rounded-2xl border border-zinc-800 bg-zinc-900 shadow-2xl"
@@ -76,8 +87,8 @@ export default function PlayerRaiseModal({
       >
         <div className="flex items-center justify-between border-b border-zinc-800 px-4 py-3">
           <div>
-            <h3 className="text-sm font-semibold text-zinc-100">Preflop Raises: {playerName}</h3>
-            <p className="text-xs text-zinc-400">{raises.length} raise events with revealed hole cards.</p>
+            <h3 className="text-sm font-semibold text-zinc-100">C-Bets: {playerName}</h3>
+            <p className="text-xs text-zinc-400">{cbets.length} flop continuation bets.</p>
           </div>
           <button
             type="button"
@@ -89,9 +100,9 @@ export default function PlayerRaiseModal({
         </div>
 
         <div className="max-h-[70vh] overflow-y-auto p-4">
-          {raises.length === 0 ? (
+          {cbets.length === 0 ? (
             <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 px-3 py-2 text-sm text-zinc-400">
-              No preflop raises with revealed hole cards for this player in the loaded file.
+              No continuation bets found for this player in the loaded files.
             </div>
           ) : (
             <div className="overflow-x-auto rounded-lg border border-zinc-800">
@@ -107,45 +118,39 @@ export default function PlayerRaiseModal({
                       Hand
                       {sortBy === "hand" && <span className="ml-1">{sortAsc ? "▲" : "▼"}</span>}
                     </th>
-                    <th className="px-3 py-2 text-left">Type</th>
-                    <th
-                      onClick={() => toggleSort("raiseTo")}
-                      className={`cursor-pointer select-none px-3 py-2 text-left hover:text-zinc-100 ${
-                        sortBy === "raiseTo" ? "text-green-400" : ""
-                      }`}
-                    >
-                      Raise To
-                      {sortBy === "raiseTo" && <span className="ml-1">{sortAsc ? "▲" : "▼"}</span>}
-                    </th>
-                    <th
-                      onClick={() => toggleSort("raiseOverPrevBet")}
-                      className={`cursor-pointer select-none px-3 py-2 text-left hover:text-zinc-100 ${
-                        sortBy === "raiseOverPrevBet" ? "text-green-400" : ""
-                      }`}
-                    >
-                      Over Prev
-                      {sortBy === "raiseOverPrevBet" && <span className="ml-1">{sortAsc ? "▲" : "▼"}</span>}
-                    </th>
                     <th className="px-3 py-2 text-left">Hole Cards</th>
+                    <th className="px-3 py-2 text-left">Flop</th>
+                    <th
+                      onClick={() => toggleSort("pot")}
+                      className={`cursor-pointer select-none px-3 py-2 text-left hover:text-zinc-100 ${
+                        sortBy === "pot" ? "text-green-400" : ""
+                      }`}
+                    >
+                      Pot
+                      {sortBy === "pot" && <span className="ml-1">{sortAsc ? "▲" : "▼"}</span>}
+                    </th>
+                    <th
+                      onClick={() => toggleSort("cbetAmount")}
+                      className={`cursor-pointer select-none px-3 py-2 text-left hover:text-zinc-100 ${
+                        sortBy === "cbetAmount" ? "text-green-400" : ""
+                      }`}
+                    >
+                      CBet
+                      {sortBy === "cbetAmount" && <span className="ml-1">{sortAsc ? "▲" : "▼"}</span>}
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
-                  {sortedRaises.map((r, i) => (
+                  {sortedCBets.map((r, i) => (
                     <tr
-                      key={`${r.handNumber}-${i}`}
+                      key={`${r.sessionNumber}-${r.handNumber}-${i}`}
                       className={`border-t border-zinc-800 ${i % 2 === 0 ? "bg-zinc-900/20" : "bg-zinc-900/5"}`}
                     >
-                      <td className="px-3 py-2 text-zinc-300">
-                        {formatHandRef(r, sessionCount)}
-                      </td>
-                      <td className="px-3 py-2 text-zinc-300">
-                        {preflopTypeLabel(r)}
-                      </td>
-                      <td className="px-3 py-2 tabular-nums text-zinc-300">{r.raiseTo}</td>
-                      <td className="px-3 py-2 tabular-nums text-zinc-300">{r.raiseOverPrevBet}</td>
-                      <td className="px-3 py-2 text-zinc-300">
-                        {r.holeCards ? `${r.holeCards[0]} ${r.holeCards[1]}` : "-"}
-                      </td>
+                      <td className="px-3 py-2 text-zinc-300">{formatHandRef(r, sessionCount)}</td>
+                      <td className="px-3 py-2 text-zinc-300">{formatHoleCards(r)}</td>
+                      <td className="px-3 py-2 text-zinc-300">{formatFlop(r)}</td>
+                      <td className="px-3 py-2 tabular-nums text-zinc-300">{fmtAmount(r.potBeforeCBet)}</td>
+                      <td className="px-3 py-2 tabular-nums text-zinc-300">{fmtAmount(r.cbetAmount)}</td>
                     </tr>
                   ))}
                 </tbody>

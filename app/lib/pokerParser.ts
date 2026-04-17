@@ -3,6 +3,8 @@ export interface PlayerStats {
   handsDealt: number;
   vpipHands: number;
   pfrHands: number;
+  cbetHands: number;
+  cbetOpportunities: number;
   sawFlopHands: number;
   aggActions: number; // bets + raises
   callActions: number;
@@ -14,6 +16,7 @@ export interface PlayerStats {
 }
 
 export interface PreflopRaiseRecord {
+  sessionNumber: number;
   handNumber: number;
   handId: string | null;
   raiseTo: number;
@@ -25,11 +28,155 @@ export interface PreflopRaiseRecord {
   holeCards: [string, string] | null;
 }
 
+export interface HandReference {
+  sessionNumber: number;
+  handNumber: number;
+}
+
+export interface CBetRecord {
+  sessionNumber: number;
+  handNumber: number;
+  handId: string | null;
+  holeCards: [string, string] | null;
+  flopCards: [string, string, string] | null;
+  potBeforeCBet: number;
+  cbetAmount: number;
+}
+
 export interface PokerLogParseResult {
   players: PlayerStats[];
   preflopRaisesByPlayer: Record<string, PreflopRaiseRecord[]>;
-  sawFlopHandsByPlayer: Record<string, number[]>;
-  noFlopHandsByPlayer: Record<string, number[]>;
+  cbetRecordsByPlayer: Record<string, CBetRecord[]>;
+  sawFlopHandsByPlayer: Record<string, HandReference[]>;
+  noFlopHandsByPlayer: Record<string, HandReference[]>;
+}
+
+export function mergePokerLogResults(results: PokerLogParseResult[]): PokerLogParseResult {
+  const multiSession = results.length > 1;
+  const mergedPlayers: Record<string, PlayerStats> = {};
+  const preflopRaisesByPlayer: Record<string, PreflopRaiseRecord[]> = {};
+  const cbetRecordsByPlayer: Record<string, CBetRecord[]> = {};
+  const sawFlopHandsByPlayer: Record<string, HandReference[]> = {};
+  const noFlopHandsByPlayer: Record<string, HandReference[]> = {};
+
+  for (const [resultIndex, result] of results.entries()) {
+    const sessionNumber = resultIndex + 1;
+    const tag = multiSession ? ` (#${sessionNumber})` : "";
+
+    // Insert the tag into the base-name portion (before any " @ id" suffix) so
+    // that baseName() returns "Alice (#1)" rather than "Alice", keeping players
+    // from different sessions as separate rows before the user explicitly merges them.
+    function tagName(name: string): string {
+      if (!tag) return name;
+      const at = name.indexOf(" @ ");
+      if (at === -1) return name + tag;
+      return name.slice(0, at) + tag + name.slice(at);
+    }
+
+    for (const player of result.players) {
+      const taggedName = tagName(player.name);
+      if (!mergedPlayers[taggedName]) {
+        mergedPlayers[taggedName] = {
+          name: taggedName,
+          handsDealt: 0,
+          vpipHands: 0,
+          pfrHands: 0,
+          cbetHands: 0,
+          cbetOpportunities: 0,
+          sawFlopHands: 0,
+          aggActions: 0,
+          callActions: 0,
+          handsWon: 0,
+          netChips: 0,
+          buyIn: 0,
+          finalStack: 0,
+          cashOut: 0,
+        };
+      }
+
+      mergedPlayers[taggedName].handsDealt += player.handsDealt;
+      mergedPlayers[taggedName].vpipHands += player.vpipHands;
+      mergedPlayers[taggedName].pfrHands += player.pfrHands;
+      mergedPlayers[taggedName].cbetHands += player.cbetHands;
+      mergedPlayers[taggedName].cbetOpportunities += player.cbetOpportunities;
+      mergedPlayers[taggedName].sawFlopHands += player.sawFlopHands;
+      mergedPlayers[taggedName].aggActions += player.aggActions;
+      mergedPlayers[taggedName].callActions += player.callActions;
+      mergedPlayers[taggedName].handsWon += player.handsWon;
+      mergedPlayers[taggedName].netChips += player.netChips;
+      mergedPlayers[taggedName].buyIn += player.buyIn;
+      mergedPlayers[taggedName].finalStack += player.finalStack;
+      mergedPlayers[taggedName].cashOut += player.cashOut;
+    }
+
+    for (const [name, raises] of Object.entries(result.preflopRaisesByPlayer)) {
+      const taggedName = tagName(name);
+      if (!preflopRaisesByPlayer[taggedName]) preflopRaisesByPlayer[taggedName] = [];
+      preflopRaisesByPlayer[taggedName].push(
+        ...raises.map((raise) => ({
+          ...raise,
+          sessionNumber,
+        })),
+      );
+    }
+
+    for (const [name, records] of Object.entries(result.cbetRecordsByPlayer)) {
+      const taggedName = tagName(name);
+      if (!cbetRecordsByPlayer[taggedName]) cbetRecordsByPlayer[taggedName] = [];
+      cbetRecordsByPlayer[taggedName].push(
+        ...records.map((record) => ({
+          ...record,
+          sessionNumber,
+        })),
+      );
+    }
+
+    for (const [name, handRefs] of Object.entries(result.sawFlopHandsByPlayer)) {
+      const taggedName = tagName(name);
+      if (!sawFlopHandsByPlayer[taggedName]) sawFlopHandsByPlayer[taggedName] = [];
+      sawFlopHandsByPlayer[taggedName].push(
+        ...handRefs.map((handRef) => ({
+          ...handRef,
+          sessionNumber,
+        })),
+      );
+    }
+
+    for (const [name, handRefs] of Object.entries(result.noFlopHandsByPlayer)) {
+      const taggedName = tagName(name);
+      if (!noFlopHandsByPlayer[taggedName]) noFlopHandsByPlayer[taggedName] = [];
+      noFlopHandsByPlayer[taggedName].push(
+        ...handRefs.map((handRef) => ({
+          ...handRef,
+          sessionNumber,
+        })),
+      );
+    }
+  }
+
+  for (const raises of Object.values(preflopRaisesByPlayer)) {
+    raises.sort((a, b) => a.sessionNumber - b.sessionNumber || a.handNumber - b.handNumber);
+  }
+
+  for (const records of Object.values(cbetRecordsByPlayer)) {
+    records.sort((a, b) => a.sessionNumber - b.sessionNumber || a.handNumber - b.handNumber);
+  }
+
+  for (const handRefs of Object.values(sawFlopHandsByPlayer)) {
+    handRefs.sort((a, b) => a.sessionNumber - b.sessionNumber || a.handNumber - b.handNumber);
+  }
+
+  for (const handRefs of Object.values(noFlopHandsByPlayer)) {
+    handRefs.sort((a, b) => a.sessionNumber - b.sessionNumber || a.handNumber - b.handNumber);
+  }
+
+  return {
+    players: Object.values(mergedPlayers),
+    preflopRaisesByPlayer,
+    cbetRecordsByPlayer,
+    sawFlopHandsByPlayer,
+    noFlopHandsByPlayer,
+  };
 }
 
 interface HandPreflopRaiseEvent {
@@ -47,7 +194,7 @@ interface HandState {
   players: string[];
   sbPlayer: string | null;
   bbPlayer: string | null;
-  phase: "preflop" | "postflop";
+  street: "preflop" | "flop" | "turn" | "river";
   // Highest total contribution any player has on current street
   streetTarget: number;
   // How much each player has put in on the current street (resets each street)
@@ -66,6 +213,18 @@ interface HandState {
   preflopFolders: Set<string>;
   // Preflop raise events for this hand (open raise, 3-bet, etc.)
   preflopRaises: HandPreflopRaiseEvent[];
+  // Last player who took the aggressive action preflop.
+  lastPreflopRaiser: string | null;
+  // Whether the hand reached the flop.
+  reachedFlop: boolean;
+  // Whether the last preflop raiser made an aggressive flop action.
+  cbetMadeOnFlop: boolean;
+  // Pot size immediately before the c-bet action.
+  potBeforeCBet: number | null;
+  // Chip amount invested by the c-bettor on the c-bet action.
+  cbetAmount: number | null;
+  // Flop board cards captured from the flop line.
+  flopCards: [string, string, string] | null;
   // Hole cards revealed at showdown for this hand.
   shownCards: Record<string, [string, string]>;
 }
@@ -141,8 +300,9 @@ export function parsePokerLogDetailed(content: string): PokerLogParseResult {
   const lastKnownStack: Record<string, number> = {};
   const hasInHandBaseline: Record<string, boolean> = {};
   const preflopRaisesByPlayer: Record<string, PreflopRaiseRecord[]> = {};
-  const sawFlopHandsByPlayer: Record<string, number[]> = {};
-  const noFlopHandsByPlayer: Record<string, number[]> = {};
+  const cbetRecordsByPlayer: Record<string, CBetRecord[]> = {};
+  const sawFlopHandsByPlayer: Record<string, HandReference[]> = {};
+  const noFlopHandsByPlayer: Record<string, HandReference[]> = {};
 
   // Track action log for debugging specific hands
   const handActionLog: Record<number, { player: string; action: string; amount: number }[]> = {};
@@ -156,6 +316,8 @@ export function parsePokerLogDetailed(content: string): PokerLogParseResult {
         handsDealt: 0,
         vpipHands: 0,
         pfrHands: 0,
+        cbetHands: 0,
+        cbetOpportunities: 0,
         sawFlopHands: 0,
         aggActions: 0,
         callActions: 0,
@@ -169,6 +331,7 @@ export function parsePokerLogDetailed(content: string): PokerLogParseResult {
     if (netMovements[name] === undefined) netMovements[name] = 0;
     if (hasInHandBaseline[name] === undefined) hasInHandBaseline[name] = false;
     if (preflopRaisesByPlayer[name] === undefined) preflopRaisesByPlayer[name] = [];
+    if (cbetRecordsByPlayer[name] === undefined) cbetRecordsByPlayer[name] = [];
     if (sawFlopHandsByPlayer[name] === undefined) sawFlopHandsByPlayer[name] = [];
     if (noFlopHandsByPlayer[name] === undefined) noFlopHandsByPlayer[name] = [];
   }
@@ -181,6 +344,8 @@ export function parsePokerLogDetailed(content: string): PokerLogParseResult {
       stats[newName].handsDealt += stats[oldName].handsDealt;
       stats[newName].vpipHands += stats[oldName].vpipHands;
       stats[newName].pfrHands += stats[oldName].pfrHands;
+      stats[newName].cbetHands += stats[oldName].cbetHands;
+      stats[newName].cbetOpportunities += stats[oldName].cbetOpportunities;
       stats[newName].sawFlopHands += stats[oldName].sawFlopHands;
       stats[newName].aggActions += stats[oldName].aggActions;
       stats[newName].callActions += stats[oldName].callActions;
@@ -214,6 +379,13 @@ export function parsePokerLogDetailed(content: string): PokerLogParseResult {
       ];
       delete sawFlopHandsByPlayer[oldName];
     }
+    if (cbetRecordsByPlayer[oldName] !== undefined) {
+      cbetRecordsByPlayer[newName] = [
+        ...(cbetRecordsByPlayer[newName] ?? []),
+        ...cbetRecordsByPlayer[oldName],
+      ];
+      delete cbetRecordsByPlayer[oldName];
+    }
     if (noFlopHandsByPlayer[oldName] !== undefined) {
       noFlopHandsByPlayer[newName] = [
         ...(noFlopHandsByPlayer[newName] ?? []),
@@ -243,6 +415,12 @@ export function parsePokerLogDetailed(content: string): PokerLogParseResult {
     h.streetPutIn = {};
   }
 
+  function currentPotSize(h: HandState): number {
+    const putIn = Object.values(h.totalPutIn).reduce((sum, n) => sum + n, 0);
+    const returned = Object.values(h.uncalledReturned).reduce((sum, n) => sum + n, 0);
+    return r2(putIn - returned);
+  }
+
   function logAction(handNumber: number, player: string, action: string, amount: number) {
     if (!handActionLog[handNumber]) {
       handActionLog[handNumber] = [];
@@ -264,11 +442,26 @@ export function parsePokerLogDetailed(content: string): PokerLogParseResult {
 
       if (h.vpipPlayers.has(player)) stats[player].vpipHands++;
       if (h.pfrPlayers.has(player)) stats[player].pfrHands++;
+      if (h.reachedFlop && h.lastPreflopRaiser === player && !h.preflopFolders.has(player)) {
+        stats[player].cbetOpportunities++;
+        if (h.cbetMadeOnFlop) {
+          stats[player].cbetHands++;
+          cbetRecordsByPlayer[player].push({
+            sessionNumber: 1,
+            handNumber: h.handNumber,
+            handId: h.handId,
+            holeCards: h.shownCards[player] ?? null,
+            flopCards: h.flopCards,
+            potBeforeCBet: r2(h.potBeforeCBet ?? 0),
+            cbetAmount: r2(h.cbetAmount ?? 0),
+          });
+        }
+      }
       if (!h.preflopFolders.has(player)) {
         stats[player].sawFlopHands++;
-        sawFlopHandsByPlayer[player].push(h.handNumber);
+        sawFlopHandsByPlayer[player].push({ sessionNumber: 1, handNumber: h.handNumber });
       } else {
-        noFlopHandsByPlayer[player].push(h.handNumber);
+        noFlopHandsByPlayer[player].push({ sessionNumber: 1, handNumber: h.handNumber });
       }
       if ((h.collected[player] ?? 0) > 0) stats[player].handsWon++;
     }
@@ -276,6 +469,7 @@ export function parsePokerLogDetailed(content: string): PokerLogParseResult {
     for (const raise of h.preflopRaises) {
       const shown = h.shownCards[raise.player] ?? null;
       preflopRaisesByPlayer[raise.player].push({
+        sessionNumber: 1,
         handNumber: h.handNumber,
         handId: h.handId,
         raiseTo: r2(raise.raiseTo),
@@ -328,7 +522,7 @@ export function parsePokerLogDetailed(content: string): PokerLogParseResult {
         players: [],
         sbPlayer: null,
         bbPlayer: null,
-        phase: "preflop",
+        street: "preflop",
         streetTarget: 0,
         streetPutIn: {},
         totalPutIn: {},
@@ -338,6 +532,12 @@ export function parsePokerLogDetailed(content: string): PokerLogParseResult {
         pfrPlayers: new Set(),
         preflopFolders: new Set(),
         preflopRaises: [],
+        lastPreflopRaiser: null,
+        reachedFlop: false,
+        cbetMadeOnFlop: false,
+        potBeforeCBet: null,
+        cbetAmount: null,
+        flopCards: null,
         shownCards: {},
       };
       continue;
@@ -552,11 +752,26 @@ export function parsePokerLogDetailed(content: string): PokerLogParseResult {
 
     // ── Street transitions ───────────────────────────────────────────
     if (/^Flop:/.test(action)) {
-      hand.phase = "postflop";
+      const flopM = action.match(/^Flop:\s*\[([^\]]+)\]/);
+      if (flopM) {
+        const cards = flopM[1].trim().split(/\s+/).slice(0, 3);
+        if (cards.length === 3) {
+          hand.flopCards = [cards[0], cards[1], cards[2]];
+        }
+      }
+      hand.street = "flop";
+      hand.reachedFlop = true;
+      hand.cbetMadeOnFlop = false;
       resetStreet(hand);
       continue;
     }
-    if (/^Turn:/.test(action) || /^River:/.test(action)) {
+    if (/^Turn:/.test(action)) {
+      hand.street = "turn";
+      resetStreet(hand);
+      continue;
+    }
+    if (/^River:/.test(action)) {
+      hand.street = "river";
       resetStreet(hand);
       continue;
     }
@@ -614,7 +829,7 @@ export function parsePokerLogDetailed(content: string): PokerLogParseResult {
     // ── Fold ─────────────────────────────────────────────────────────
     const foldM = action.match(/^"([^"]+)" folds/);
     if (foldM) {
-      if (hand.phase === "preflop") {
+      if (hand.street === "preflop") {
         hand.preflopFolders.add(foldM[1]);
       }
       continue;
@@ -625,7 +840,7 @@ export function parsePokerLogDetailed(content: string): PokerLogParseResult {
     if (straddleM) {
       putIn(hand, straddleM[1], parseFloat(straddleM[2]));
       hand.streetTarget = Math.max(hand.streetTarget, hand.streetPutIn[straddleM[1]] ?? 0);
-      if (hand.phase === "preflop") hand.vpipPlayers.add(straddleM[1]);
+      if (hand.street === "preflop") hand.vpipPlayers.add(straddleM[1]);
       continue;
     }
 
@@ -707,7 +922,7 @@ export function parsePokerLogDetailed(content: string): PokerLogParseResult {
       hand.streetPutIn[name] = chosenFinal;
       hand.totalPutIn[name] = (hand.totalPutIn[name] ?? 0) + additional;
       logAction(hand.handNumber, name, `call-to-${callValue}`, additional);
-      if (hand.phase === "preflop") hand.vpipPlayers.add(name);
+      if (hand.street === "preflop") hand.vpipPlayers.add(name);
       ensurePlayer(name);
       stats[name].callActions++;
       continue;
@@ -721,12 +936,21 @@ export function parsePokerLogDetailed(content: string): PokerLogParseResult {
     if (betM) {
       const name = betM[1];
       const amount = parseFloat(betM[2]);
+      const potBeforeAction = currentPotSize(hand);
       putIn(hand, name, amount);
       logAction(hand.handNumber, name, "bet", amount);
       hand.streetTarget = Math.max(hand.streetTarget, hand.streetPutIn[name] ?? 0);
-      if (hand.phase === "preflop") {
+      if (hand.street === "preflop") {
         hand.vpipPlayers.add(name);
         hand.pfrPlayers.add(name);
+        hand.lastPreflopRaiser = name;
+      }
+      if (hand.street === "flop" && hand.lastPreflopRaiser === name) {
+        if (!hand.cbetMadeOnFlop) {
+          hand.cbetMadeOnFlop = true;
+          hand.potBeforeCBet = potBeforeAction;
+          hand.cbetAmount = amount;
+        }
       }
       ensurePlayer(name);
       stats[name].aggActions++;
@@ -745,16 +969,18 @@ export function parsePokerLogDetailed(content: string): PokerLogParseResult {
       const prevTarget = hand.streetTarget;
       const alreadyIn = hand.streetPutIn[name] ?? 0;
       const additional = Math.max(0, raiseTo - alreadyIn);
+      const potBeforeAction = currentPotSize(hand);
       const raiseOverPrevBet = Math.max(0, raiseTo - prevTarget);
       hand.streetPutIn[name] = raiseTo;
       hand.streetTarget = Math.max(hand.streetTarget, raiseTo);
       hand.totalPutIn[name] = (hand.totalPutIn[name] ?? 0) + additional;
       logAction(hand.handNumber, name, `raise-to-${raiseTo}`, additional);
-      if (hand.phase === "preflop") {
+      if (hand.street === "preflop") {
         const preflopRaiseNumber = hand.preflopRaises.length + 1;
         const preflopBetLevel = preflopRaiseNumber + 1; // First raise is a 2-bet (open raise)
         hand.vpipPlayers.add(name);
         hand.pfrPlayers.add(name);
+        hand.lastPreflopRaiser = name;
         hand.preflopRaises.push({
           player: name,
           raiseTo,
@@ -763,6 +989,13 @@ export function parsePokerLogDetailed(content: string): PokerLogParseResult {
           preflopRaiseNumber,
           preflopBetLevel,
         });
+      }
+      if (hand.street === "flop" && hand.lastPreflopRaiser === name) {
+        if (!hand.cbetMadeOnFlop) {
+          hand.cbetMadeOnFlop = true;
+          hand.potBeforeCBet = potBeforeAction;
+          hand.cbetAmount = additional;
+        }
       }
       ensurePlayer(name);
       stats[name].aggActions++;
@@ -822,6 +1055,7 @@ export function parsePokerLogDetailed(content: string): PokerLogParseResult {
   return {
     players: Object.values(stats).sort((a, b) => b.netChips - a.netChips),
     preflopRaisesByPlayer,
+    cbetRecordsByPlayer,
     sawFlopHandsByPlayer,
     noFlopHandsByPlayer,
   };
