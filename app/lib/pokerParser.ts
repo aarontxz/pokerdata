@@ -58,23 +58,44 @@ export function mergePokerLogResults(results: PokerLogParseResult[]): PokerLogPa
   const cbetRecordsByPlayer: Record<string, CBetRecord[]> = {};
   const sawFlopHandsByPlayer: Record<string, HandReference[]> = {};
   const noFlopHandsByPlayer: Record<string, HandReference[]> = {};
+  const canonicalNameById: Record<string, string> = {};
+  const aliasesByCanonicalName: Record<string, string[]> = {};
+
+  function splitNameAndId(name: string): { baseName: string; playerId: string | null } {
+    const at = name.lastIndexOf(" @ ");
+    if (at === -1) return { baseName: name, playerId: null };
+    return {
+      baseName: name.slice(0, at),
+      playerId: name.slice(at + 3),
+    };
+  }
 
   for (const [resultIndex, result] of results.entries()) {
     const sessionNumber = resultIndex + 1;
     const tag = multiSession ? ` (#${sessionNumber})` : "";
 
-    // Insert the tag into the base-name portion (before any " @ id" suffix) so
-    // that baseName() returns "Alice (#1)" rather than "Alice", keeping players
-    // from different sessions as separate rows before the user explicitly merges them.
-    function tagName(name: string): string {
+    // Use player ID as stable identity across sessions. If no ID is present,
+    // keep session tags so unknown identities do not auto-merge.
+    function mergedName(name: string): string {
+      const { baseName, playerId } = splitNameAndId(name);
+      if (playerId) {
+        const existingCanonical = canonicalNameById[playerId];
+        if (existingCanonical) {
+          const aliases = aliasesByCanonicalName[existingCanonical] ?? [];
+          if (!aliases.includes(baseName)) aliases.push(baseName);
+          aliasesByCanonicalName[existingCanonical] = aliases;
+          return existingCanonical;
+        }
+        canonicalNameById[playerId] = `${baseName} @ ${playerId}`;
+        aliasesByCanonicalName[canonicalNameById[playerId]] = [baseName];
+        return canonicalNameById[playerId];
+      }
       if (!tag) return name;
-      const at = name.indexOf(" @ ");
-      if (at === -1) return name + tag;
-      return name.slice(0, at) + tag + name.slice(at);
+      return baseName + tag;
     }
 
     for (const player of result.players) {
-      const taggedName = tagName(player.name);
+      const taggedName = mergedName(player.name);
       if (!mergedPlayers[taggedName]) {
         mergedPlayers[taggedName] = {
           name: taggedName,
@@ -110,7 +131,7 @@ export function mergePokerLogResults(results: PokerLogParseResult[]): PokerLogPa
     }
 
     for (const [name, raises] of Object.entries(result.preflopRaisesByPlayer)) {
-      const taggedName = tagName(name);
+      const taggedName = mergedName(name);
       if (!preflopRaisesByPlayer[taggedName]) preflopRaisesByPlayer[taggedName] = [];
       preflopRaisesByPlayer[taggedName].push(
         ...raises.map((raise) => ({
@@ -121,7 +142,7 @@ export function mergePokerLogResults(results: PokerLogParseResult[]): PokerLogPa
     }
 
     for (const [name, records] of Object.entries(result.cbetRecordsByPlayer)) {
-      const taggedName = tagName(name);
+      const taggedName = mergedName(name);
       if (!cbetRecordsByPlayer[taggedName]) cbetRecordsByPlayer[taggedName] = [];
       cbetRecordsByPlayer[taggedName].push(
         ...records.map((record) => ({
@@ -132,7 +153,7 @@ export function mergePokerLogResults(results: PokerLogParseResult[]): PokerLogPa
     }
 
     for (const [name, handRefs] of Object.entries(result.sawFlopHandsByPlayer)) {
-      const taggedName = tagName(name);
+      const taggedName = mergedName(name);
       if (!sawFlopHandsByPlayer[taggedName]) sawFlopHandsByPlayer[taggedName] = [];
       sawFlopHandsByPlayer[taggedName].push(
         ...handRefs.map((handRef) => ({
@@ -143,7 +164,7 @@ export function mergePokerLogResults(results: PokerLogParseResult[]): PokerLogPa
     }
 
     for (const [name, handRefs] of Object.entries(result.noFlopHandsByPlayer)) {
-      const taggedName = tagName(name);
+      const taggedName = mergedName(name);
       if (!noFlopHandsByPlayer[taggedName]) noFlopHandsByPlayer[taggedName] = [];
       noFlopHandsByPlayer[taggedName].push(
         ...handRefs.map((handRef) => ({
@@ -170,12 +191,40 @@ export function mergePokerLogResults(results: PokerLogParseResult[]): PokerLogPa
     handRefs.sort((a, b) => a.sessionNumber - b.sessionNumber || a.handNumber - b.handNumber);
   }
 
+  const renameByOldName: Record<string, string> = {};
+  for (const [playerId, canonicalName] of Object.entries(canonicalNameById)) {
+    const aliases = aliasesByCanonicalName[canonicalName] ?? [];
+    if (aliases.length <= 1) continue;
+    const mergedAliasName = `${aliases.join(" / ")} @ ${playerId}`;
+    if (mergedAliasName !== canonicalName) {
+      renameByOldName[canonicalName] = mergedAliasName;
+    }
+  }
+
+  function renamePlayerKeys<T>(byPlayer: Record<string, T>): Record<string, T> {
+    const renamed: Record<string, T> = {};
+    for (const [oldName, value] of Object.entries(byPlayer)) {
+      renamed[renameByOldName[oldName] ?? oldName] = value;
+    }
+    return renamed;
+  }
+
+  const renamedMergedPlayers = renamePlayerKeys(mergedPlayers);
+  const renamedPreflopRaisesByPlayer = renamePlayerKeys(preflopRaisesByPlayer);
+  const renamedCbetRecordsByPlayer = renamePlayerKeys(cbetRecordsByPlayer);
+  const renamedSawFlopHandsByPlayer = renamePlayerKeys(sawFlopHandsByPlayer);
+  const renamedNoFlopHandsByPlayer = renamePlayerKeys(noFlopHandsByPlayer);
+
+  for (const [name, player] of Object.entries(renamedMergedPlayers)) {
+    player.name = name;
+  }
+
   return {
-    players: Object.values(mergedPlayers),
-    preflopRaisesByPlayer,
-    cbetRecordsByPlayer,
-    sawFlopHandsByPlayer,
-    noFlopHandsByPlayer,
+    players: Object.values(renamedMergedPlayers),
+    preflopRaisesByPlayer: renamedPreflopRaisesByPlayer,
+    cbetRecordsByPlayer: renamedCbetRecordsByPlayer,
+    sawFlopHandsByPlayer: renamedSawFlopHandsByPlayer,
+    noFlopHandsByPlayer: renamedNoFlopHandsByPlayer,
   };
 }
 

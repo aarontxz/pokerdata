@@ -24,12 +24,25 @@ function baseName(name: string): string {
 }
 
 function displayName(name: string): string {
-  return baseName(name);
+  const aliases = baseName(name)
+    .split("/")
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0);
+  return aliases[0] ?? baseName(name);
 }
 
-/** Like displayName but also strips the ` (#N)` session tag added during multi-session merges. */
-function coreDisplayName(name: string): string {
-  return displayName(name).replace(/\s*\(#\d+\)\s*$/, "").trim();
+function displayNameOptions(name: string): string[] {
+  const aliases = baseName(name)
+    .split("/")
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0);
+  return aliases.length > 0 ? aliases : [baseName(name)];
+}
+
+function selectedDisplayName(name: string, selectedName: string | undefined): string {
+  const options = displayNameOptions(name);
+  if (selectedName && options.includes(selectedName)) return selectedName;
+  return options[0];
 }
 
 function pct(num: number, denom: number): string {
@@ -69,19 +82,13 @@ const COLUMNS: { key: SortKey; label: string; title: string }[] = [
 
 function mergeAliasedStats(raw: PlayerStats[], groups: string[][]): PlayerStats[] {
   const aliasByName: Record<string, string> = {};
-  const labelByAlias: Record<string, string> = {};
 
   for (const group of groups) {
     if (group.length === 0) continue;
     const alias = group[0];
-    const label =
-      group.length === 1
-        ? displayName(alias)
-        : [...new Set(group.map((name) => coreDisplayName(name)))].join(" / ");
     for (const name of group) {
       aliasByName[name] = alias;
     }
-    labelByAlias[alias] = label;
   }
 
   const merged: Record<string, PlayerStats> = {};
@@ -90,7 +97,7 @@ function mergeAliasedStats(raw: PlayerStats[], groups: string[][]): PlayerStats[
     const alias = aliasByName[player.name] ?? player.name;
     if (!merged[alias]) {
       merged[alias] = {
-        name: labelByAlias[alias] ?? alias,
+        name: alias,
         handsDealt: 0,
         vpipHands: 0,
         pfrHands: 0,
@@ -126,53 +133,13 @@ function mergeAliasedStats(raw: PlayerStats[], groups: string[][]): PlayerStats[
 }
 
 function autoMergeSameBaseNamePlayers(raw: PlayerStats[]): PlayerStats[] {
-  const merged: Record<string, PlayerStats> = {};
-
-  for (const player of raw) {
-    const key = baseName(player.name);
-    if (!merged[key]) {
-      merged[key] = {
-        name: key,
-        handsDealt: 0,
-        vpipHands: 0,
-        pfrHands: 0,
-        cbetHands: 0,
-        cbetOpportunities: 0,
-        sawFlopHands: 0,
-        aggActions: 0,
-        callActions: 0,
-        handsWon: 0,
-        netChips: 0,
-        buyIn: 0,
-        finalStack: 0,
-        cashOut: 0,
-      };
-    }
-
-    merged[key].handsDealt += player.handsDealt;
-    merged[key].vpipHands += player.vpipHands;
-    merged[key].pfrHands += player.pfrHands;
-    merged[key].cbetHands += player.cbetHands;
-    merged[key].cbetOpportunities += player.cbetOpportunities;
-    merged[key].sawFlopHands += player.sawFlopHands;
-    merged[key].aggActions += player.aggActions;
-    merged[key].callActions += player.callActions;
-    merged[key].handsWon += player.handsWon;
-    merged[key].netChips += player.netChips;
-    merged[key].buyIn += player.buyIn;
-    merged[key].finalStack += player.finalStack;
-    merged[key].cashOut += player.cashOut;
-  }
-
-  return Object.values(merged);
+  return raw.map((player) => ({ ...player }));
 }
 
 function autoMergeSameBaseNameRaises(raw: RaiseMap): RaiseMap {
   const merged: RaiseMap = {};
   for (const [name, records] of Object.entries(raw)) {
-    const key = baseName(name);
-    if (!merged[key]) merged[key] = [];
-    merged[key].push(...records);
+    merged[name] = [...records];
   }
   for (const key of Object.keys(merged)) {
     merged[key].sort((a, b) => a.handNumber - b.handNumber);
@@ -182,27 +149,20 @@ function autoMergeSameBaseNameRaises(raw: RaiseMap): RaiseMap {
 
 function mergeAliasedRaises(raw: RaiseMap, groups: string[][]): RaiseMap {
   const aliasByName: Record<string, string> = {};
-  const labelByAlias: Record<string, string> = {};
 
   for (const group of groups) {
     if (group.length === 0) continue;
     const alias = group[0];
-    const label =
-      group.length === 1
-        ? displayName(alias)
-        : [...new Set(group.map((name) => coreDisplayName(name)))].join(" / ");
     for (const name of group) {
       aliasByName[name] = alias;
     }
-    labelByAlias[alias] = label;
   }
 
   const merged: RaiseMap = {};
   for (const [name, records] of Object.entries(raw)) {
     const alias = aliasByName[name] ?? name;
-    const label = labelByAlias[alias] ?? displayName(alias);
-    if (!merged[label]) merged[label] = [];
-    merged[label].push(...records);
+    if (!merged[alias]) merged[alias] = [];
+    merged[alias].push(...records);
   }
 
   for (const key of Object.keys(merged)) {
@@ -215,9 +175,7 @@ function mergeAliasedRaises(raw: RaiseMap, groups: string[][]): RaiseMap {
 function autoMergeSameBaseNameCBets(raw: CBetMap): CBetMap {
   const merged: CBetMap = {};
   for (const [name, records] of Object.entries(raw)) {
-    const key = baseName(name);
-    if (!merged[key]) merged[key] = [];
-    merged[key].push(...records);
+    merged[name] = [...records];
   }
   for (const key of Object.keys(merged)) {
     merged[key].sort((a, b) => a.sessionNumber - b.sessionNumber || a.handNumber - b.handNumber);
@@ -227,27 +185,20 @@ function autoMergeSameBaseNameCBets(raw: CBetMap): CBetMap {
 
 function mergeAliasedCBets(raw: CBetMap, groups: string[][]): CBetMap {
   const aliasByName: Record<string, string> = {};
-  const labelByAlias: Record<string, string> = {};
 
   for (const group of groups) {
     if (group.length === 0) continue;
     const alias = group[0];
-    const label =
-      group.length === 1
-        ? displayName(alias)
-        : [...new Set(group.map((name) => coreDisplayName(name)))].join(" / ");
     for (const name of group) {
       aliasByName[name] = alias;
     }
-    labelByAlias[alias] = label;
   }
 
   const merged: CBetMap = {};
   for (const [name, records] of Object.entries(raw)) {
     const alias = aliasByName[name] ?? name;
-    const label = labelByAlias[alias] ?? displayName(alias);
-    if (!merged[label]) merged[label] = [];
-    merged[label].push(...records);
+    if (!merged[alias]) merged[alias] = [];
+    merged[alias].push(...records);
   }
 
   for (const key of Object.keys(merged)) {
@@ -260,9 +211,7 @@ function mergeAliasedCBets(raw: CBetMap, groups: string[][]): CBetMap {
 function autoMergeSameBaseNameHandNumbers(raw: HandNumberMap): HandNumberMap {
   const merged: HandNumberMap = {};
   for (const [name, handRefs] of Object.entries(raw)) {
-    const key = baseName(name);
-    if (!merged[key]) merged[key] = [];
-    merged[key].push(...handRefs);
+    merged[name] = [...handRefs];
   }
   for (const key of Object.keys(merged)) {
     merged[key].sort((a, b) => a.sessionNumber - b.sessionNumber || a.handNumber - b.handNumber);
@@ -272,27 +221,20 @@ function autoMergeSameBaseNameHandNumbers(raw: HandNumberMap): HandNumberMap {
 
 function mergeAliasedHandNumbers(raw: HandNumberMap, groups: string[][]): HandNumberMap {
   const aliasByName: Record<string, string> = {};
-  const labelByAlias: Record<string, string> = {};
 
   for (const group of groups) {
     if (group.length === 0) continue;
     const alias = group[0];
-    const label =
-      group.length === 1
-        ? displayName(alias)
-        : [...new Set(group.map((name) => coreDisplayName(name)))].join(" / ");
     for (const name of group) {
       aliasByName[name] = alias;
     }
-    labelByAlias[alias] = label;
   }
 
   const merged: HandNumberMap = {};
   for (const [name, handRefs] of Object.entries(raw)) {
     const alias = aliasByName[name] ?? name;
-    const label = labelByAlias[alias] ?? displayName(alias);
-    if (!merged[label]) merged[label] = [];
-    merged[label].push(...handRefs);
+    if (!merged[alias]) merged[alias] = [];
+    merged[alias].push(...handRefs);
   }
 
   for (const key of Object.keys(merged)) {
@@ -334,7 +276,7 @@ function readFileText(file: File): Promise<string> {
 }
 
 function normalizeForMatch(name: string): string {
-  const baseDisplayName = displayName(name).replace(/\s*\(#\d+\)\s*/, "");
+  const baseDisplayName = baseName(name).replace(/\s*\(#\d+\)\s*/, "");
   return baseDisplayName.toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
@@ -438,6 +380,8 @@ export default function PokerStats() {
   const [sortKey, setSortKey] = useState<SortKey>("netChips");
   const [sortAsc, setSortAsc] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [selectedNameByPlayer, setSelectedNameByPlayer] = useState<Record<string, string>>({});
+  const [openNameDropdownPlayer, setOpenNameDropdownPlayer] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const uploadModeRef = useRef<UploadMode>("replace");
 
@@ -458,7 +402,9 @@ export default function PokerStats() {
       setRawNoFlopHands(null);
       setSawFlopHands(null);
       setNoFlopHands(null);
+      setSelectedNameByPlayer({});
     }
+    setOpenNameDropdownPlayer(null);
     setSelectedPlayer(null);
     setSelectedCbetPlayer(null);
     setSelectedSeeFlopPlayer(null);
@@ -529,6 +475,8 @@ export default function PokerStats() {
     setSelectedPlayer(null);
     setSelectedCbetPlayer(null);
     setSelectedSeeFlopPlayer(null);
+    setSelectedNameByPlayer({});
+    setOpenNameDropdownPlayer(null);
     setAliasModalOpen(false);
   }
 
@@ -556,6 +504,8 @@ export default function PokerStats() {
     setSelectedPlayer(null);
     setSelectedCbetPlayer(null);
     setSelectedSeeFlopPlayer(null);
+    setSelectedNameByPlayer({});
+    setOpenNameDropdownPlayer(null);
     setAliasModalOpen(false);
   }
 
@@ -575,6 +525,8 @@ export default function PokerStats() {
     setSelectedSeeFlopPlayer(null);
     setAliasGroups([]);
     setAliasModalOpen(false);
+    setSelectedNameByPlayer({});
+    setOpenNameDropdownPlayer(null);
     setError(null);
     setDragging(false);
     setIsParsing(false);
@@ -606,6 +558,9 @@ export default function PokerStats() {
   }
 
   const getSortValue = (player: PlayerStats, key: SortKey): number | string => {
+    if (key === "name") {
+      return selectedDisplayName(player.name, selectedNameByPlayer[player.name]);
+    }
     if (key === "vpipHands") {
       return player.handsDealt === 0 ? 0 : (player.vpipHands / player.handsDealt) * 100;
     }
@@ -653,9 +608,52 @@ export default function PokerStats() {
     ? noFlopHands[selectedSeeFlopPlayer] ?? []
     : [];
 
-  function renderCell(player: PlayerStats, key: SortKey) {
+  function renderCell(player: PlayerStats, key: SortKey, rowIndex: number, totalRows: number) {
     if (key === "name") {
-      return <span className="font-medium text-zinc-100 whitespace-nowrap">{displayName(player.name)}</span>;
+      const options = displayNameOptions(player.name);
+      const current = selectedDisplayName(player.name, selectedNameByPlayer[player.name]);
+      if (options.length <= 1) {
+        return <span className="font-medium text-zinc-100 whitespace-nowrap">{current}</span>;
+      }
+
+      const isOpen = openNameDropdownPlayer === player.name;
+      const openUpward = rowIndex >= totalRows - 3;
+      return (
+        <div className="relative inline-flex items-center">
+          <button
+            type="button"
+            onClick={() => setOpenNameDropdownPlayer((prev) => (prev === player.name ? null : player.name))}
+            className="inline-flex items-center gap-1 rounded px-1 font-medium text-zinc-100 transition-colors hover:bg-zinc-800"
+            title="Choose which player name to display"
+          >
+            <span className="whitespace-nowrap">{current}</span>
+            <span className="text-xs text-zinc-400">▾</span>
+          </button>
+          {isOpen && (
+            <div
+              className={`absolute left-0 z-20 min-w-40 rounded border border-zinc-700 bg-zinc-900 p-1 text-sm text-zinc-100 shadow-lg ${
+                openUpward ? "bottom-full mb-1" : "top-full mt-1"
+              }`}
+            >
+              {options.map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  onClick={() => {
+                    setSelectedNameByPlayer((prev) => ({ ...prev, [player.name]: option }));
+                    setOpenNameDropdownPlayer(null);
+                  }}
+                  className={`block w-full rounded px-2 py-1 text-left transition-colors hover:bg-zinc-800 ${
+                    option === current ? "text-green-300" : "text-zinc-100"
+                  }`}
+                >
+                  {option}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      );
     }
 
     if (key === "handsDealt") {
@@ -686,7 +684,10 @@ export default function PokerStats() {
       return (
         <button
           type="button"
-          onClick={() => setSelectedSeeFlopPlayer(player.name)}
+          onClick={() => {
+            setOpenNameDropdownPlayer(null);
+            setSelectedSeeFlopPlayer(player.name);
+          }}
           className={`rounded px-1 tabular-nums transition-colors hover:text-green-300 ${
             selectedSeeFlopPlayer === player.name ? "text-green-300" : "text-zinc-300"
           }`}
@@ -705,7 +706,10 @@ export default function PokerStats() {
       return (
         <button
           type="button"
-          onClick={() => setSelectedPlayer(player.name)}
+          onClick={() => {
+            setOpenNameDropdownPlayer(null);
+            setSelectedPlayer(player.name);
+          }}
           className={`rounded px-1 tabular-nums transition-colors hover:text-green-300 ${
             selectedPlayer === player.name ? "text-green-300" : "text-zinc-300"
           }`}
@@ -720,7 +724,10 @@ export default function PokerStats() {
       return (
         <button
           type="button"
-          onClick={() => setSelectedCbetPlayer(player.name)}
+          onClick={() => {
+            setOpenNameDropdownPlayer(null);
+            setSelectedCbetPlayer(player.name);
+          }}
           className={`rounded px-1 tabular-nums transition-colors hover:text-green-300 ${
             selectedCbetPlayer === player.name ? "text-green-300" : "text-zinc-300"
           }`}
@@ -830,7 +837,7 @@ export default function PokerStats() {
                     const formatted = (Math.abs(n) >= 1000
                       ? (n < 0 ? "-" : "+") + Math.abs(n).toLocaleString("en-US")
                       : (n >= 0 ? "+" : "") + n.toLocaleString("en-US"));
-                    return `${displayName(p.name)}: ${formatted}`;
+                    return `${selectedDisplayName(p.name, selectedNameByPlayer[p.name])}: ${formatted}`;
                   })
                   .join("\n");
                 navigator.clipboard.writeText(text);
@@ -899,7 +906,7 @@ export default function PokerStats() {
                       key={String(col.key)}
                       className={`px-4 py-3 ${col.key === "name" ? "whitespace-nowrap" : ""}`}
                     >
-                      {renderCell(p, col.key)}
+                      {renderCell(p, col.key, i, sorted.length)}
                     </td>
                   ))}
                 </tr>
@@ -914,7 +921,7 @@ export default function PokerStats() {
 
       <PlayerRaiseModal
         open={!!selectedPlayer}
-        playerName={selectedPlayer ? displayName(selectedPlayer) : ""}
+        playerName={selectedPlayer ? selectedDisplayName(selectedPlayer, selectedNameByPlayer[selectedPlayer]) : ""}
         raises={selectedRaises}
         onClose={() => setSelectedPlayer(null)}
         sessionCount={loadedSessions.length}
@@ -922,7 +929,7 @@ export default function PokerStats() {
 
       <PlayerSeeFlopModal
         open={!!selectedSeeFlopPlayer}
-        playerName={selectedSeeFlopPlayer ? displayName(selectedSeeFlopPlayer) : ""}
+        playerName={selectedSeeFlopPlayer ? selectedDisplayName(selectedSeeFlopPlayer, selectedNameByPlayer[selectedSeeFlopPlayer]) : ""}
         sawFlopHands={selectedSawFlopHands}
         noFlopHands={selectedNoFlopHands}
         onClose={() => setSelectedSeeFlopPlayer(null)}
@@ -931,7 +938,7 @@ export default function PokerStats() {
 
       <PlayerCBetModal
         open={!!selectedCbetPlayer}
-        playerName={selectedCbetPlayer ? displayName(selectedCbetPlayer) : ""}
+        playerName={selectedCbetPlayer ? selectedDisplayName(selectedCbetPlayer, selectedNameByPlayer[selectedCbetPlayer]) : ""}
         cbets={selectedCBets}
         onClose={() => setSelectedCbetPlayer(null)}
         sessionCount={loadedSessions.length}
