@@ -884,12 +884,19 @@ export function parsePokerLogDetailed(content: string): PokerLogParseResult {
       continue;
     }
 
-    // Straddle counts as voluntary
+    // Straddle counts as voluntary.
+    // "posts a straddle of X" uses raise-to semantics: X is the call price (total on street),
+    // so if the player already has chips in (e.g. SB), only charge the delta.
     const straddleM = action.match(/^"([^"]+)" posts a straddle of ([\d.]+)/);
     if (straddleM) {
-      putIn(hand, straddleM[1], parseFloat(straddleM[2]));
-      hand.streetTarget = Math.max(hand.streetTarget, hand.streetPutIn[straddleM[1]] ?? 0);
-      if (hand.street === "preflop") hand.vpipPlayers.add(straddleM[1]);
+      const straddlePlayer = straddleM[1];
+      const straddleTo = parseFloat(straddleM[2]);
+      const alreadyIn = hand.streetPutIn[straddlePlayer] ?? 0;
+      const additional = Math.max(0, straddleTo - alreadyIn);
+      hand.streetPutIn[straddlePlayer] = straddleTo;
+      hand.totalPutIn[straddlePlayer] = r2((hand.totalPutIn[straddlePlayer] ?? 0) + additional);
+      hand.streetTarget = Math.max(hand.streetTarget, straddleTo);
+      if (hand.street === "preflop") hand.vpipPlayers.add(straddlePlayer);
       continue;
     }
 
