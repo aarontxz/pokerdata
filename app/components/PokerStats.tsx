@@ -275,6 +275,119 @@ function readFileText(file: File): Promise<string> {
   });
 }
 
+function parseTimestampFromEventLine(line: string): string | null {
+  if (line.includes("\t")) {
+    const parts = line.split("\t");
+    if (parts.length < 3) return null;
+    return parts[1].trim();
+  }
+
+  const m = line.match(/^(.*),([^,]+),([^,]+)$/);
+  if (!m) return null;
+  return m[2].trim();
+}
+
+function parseActionFromEventLine(line: string): string | null {
+  if (line.includes("\t")) {
+    const parts = line.split("\t");
+    if (parts.length < 3) return null;
+    return parts[0].trim();
+  }
+
+  const m = line.match(/^(.*),([^,]+),([^,]+)$/);
+  if (!m) return null;
+
+  let action = m[1].trim();
+  if (action.startsWith('"') && action.endsWith('"') && action.length >= 2) {
+    action = action.slice(1, -1).replace(/""/g, '"');
+  }
+  return action;
+}
+
+interface SessionTimeRange {
+  startIso: string | null;
+  endIso: string | null;
+}
+
+function extractSessionTimeRange(content: string): SessionTimeRange {
+  const lines = content.split(/\r?\n/).filter((line) => line.trim() !== "");
+  if (lines.length === 0) return { startIso: null, endIso: null };
+
+  const timestampEntries = lines
+    .map((line) => {
+      const action = parseActionFromEventLine(line);
+      const ts = parseTimestampFromEventLine(line);
+      if (!action || !ts) return null;
+      const dt = new Date(ts);
+      if (Number.isNaN(dt.getTime())) return null;
+      return { action, ts, ms: dt.getTime() };
+    })
+    .filter((entry): entry is { action: string; ts: string; ms: number } => entry !== null);
+
+  if (timestampEntries.length === 0) return { startIso: null, endIso: null };
+
+  const startHandOne = timestampEntries.find((entry) =>
+    /^-- starting hand #1\b/.test(entry.action),
+  );
+  const startIso = startHandOne ? startHandOne.ts : timestampEntries.reduce((min, curr) => (curr.ms < min.ms ? curr : min)).ts;
+  const endIso = timestampEntries.reduce((max, curr) => (curr.ms > max.ms ? curr : max)).ts;
+
+  return { startIso, endIso };
+}
+
+function formatSessionHeader(range: SessionTimeRange): string | null {
+  if (!range.startIso || !range.endIso) return null;
+
+  const start = new Date(range.startIso);
+  const end = new Date(range.endIso);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
+
+  const datePart = `${start.getDate()}/${start.getMonth() + 1}/${start.getFullYear()}`;
+
+  const hour24 = start.getHours();
+  const hour12 = hour24 % 12 || 12;
+  const minute = String(start.getMinutes()).padStart(2, "0");
+  const meridiem = hour24 >= 12 ? "pm" : "am";
+  const timePart = `${hour12}.${minute}${meridiem}`;
+
+  const diffMs = Math.max(0, end.getTime() - start.getTime());
+  const totalMinutes = Math.round(diffMs / 60000);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  const durationPart = hours > 0
+    ? `${hours}h ${minutes}m`
+    : `${minutes}m`;
+
+  return `${datePart} ${timePart} (${durationPart})`;
+}
+
+function extractSessionStartDate(content: string): string | null {
+  const lines = content.split(/\r?\n/).filter((line) => line.trim() !== "");
+  if (lines.length === 0) return null;
+
+  // Poker Now exports are newest-first; the last row is the session start.
+  const ts = parseTimestampFromEventLine(lines[lines.length - 1]);
+  if (!ts) return null;
+
+  function formatDayMonthYear(d: Date): string {
+    return `${d.getDate()}/${d.getMonth() + 1}/${d.getFullYear()}`;
+  }
+
+  // ISO format from export: 2026-04-18T12:02:45.208Z
+  // Use UTC so timezone does not shift the exported day.
+  const isoDate = ts.match(/^(\d{4})-(\d{2})-(\d{2})T/);
+  if (isoDate) {
+    const year = Number(isoDate[1]);
+    const month = Number(isoDate[2]);
+    const day = Number(isoDate[3]);
+    return `${day}/${month}/${year}`;
+  }
+
+  const parsed = new Date(ts);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return formatDayMonthYear(parsed);
+}
+
 function normalizeForMatch(name: string): string {
   const baseDisplayName = baseName(name).replace(/\s*\(#\d+\)\s*/, "");
   return baseDisplayName.toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -377,6 +490,7 @@ export default function PokerStats() {
   const [dragging, setDragging] = useState(false);
   const [isParsing, setIsParsing] = useState(false);
   const [loadedSessions, setLoadedSessions] = useState<PokerLogParseResult[]>([]);
+  const [loadedSessionTimeRanges, setLoadedSessionTimeRanges] = useState<SessionTimeRange[]>([]);
   const [sortKey, setSortKey] = useState<SortKey>("netChips");
   const [sortAsc, setSortAsc] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -416,16 +530,25 @@ export default function PokerStats() {
           const rawText = await readFileText(file);
           const text = rawText.split("\n").slice(0).join("\n");
           const parsed = parsePokerLogDetailed(text);
+          const sessionTimeRange = extractSessionTimeRange(rawText);
 
           if (parsed.players.length === 0) {
             throw new Error(`${file.name}: no player data found. Make sure the file is a valid poker log.`);
           }
 
-          return parsed;
+          return {
+            parsed,
+            sessionTimeRange,
+          };
         }),
       );
 
-      const nextSessions = mode === "append" ? [...loadedSessions, ...parsedResults] : parsedResults;
+      const nextSessions = mode === "append"
+        ? [...loadedSessions, ...parsedResults.map((result) => result.parsed)]
+        : parsedResults.map((result) => result.parsed);
+      const nextSessionTimeRanges = mode === "append"
+        ? [...loadedSessionTimeRanges, ...parsedResults.map((result) => result.sessionTimeRange)]
+        : parsedResults.map((result) => result.sessionTimeRange);
       const mergedParsed = mergePokerLogResults(nextSessions);
       const canonical = autoMergeSameBaseNamePlayers(mergedParsed.players);
       const canonicalRaises = autoMergeSameBaseNameRaises(mergedParsed.preflopRaisesByPlayer);
@@ -441,11 +564,12 @@ export default function PokerStats() {
         setRawCbetRecords(canonicalCBets);
       setRawSawFlopHands(canonicalSawFlopHands);
       setRawNoFlopHands(canonicalNoFlopHands);
-  setLoadedSessions(nextSessions);
+      setLoadedSessions(nextSessions);
+      setLoadedSessionTimeRanges(nextSessionTimeRanges);
       setAliasGroups(nextAliasGroups);
       setStats(mergeAliasedStats(canonical, nextAliasGroups));
       setPreflopRaises(mergeAliasedRaises(canonicalRaises, nextAliasGroups));
-        setCbetRecords(mergeAliasedCBets(canonicalCBets, nextAliasGroups));
+      setCbetRecords(mergeAliasedCBets(canonicalCBets, nextAliasGroups));
       setSawFlopHands(mergeAliasedHandNumbers(canonicalSawFlopHands, nextAliasGroups));
       setNoFlopHands(mergeAliasedHandNumbers(canonicalNoFlopHands, nextAliasGroups));
     } catch (err) {
@@ -454,7 +578,7 @@ export default function PokerStats() {
       setIsParsing(false);
       uploadModeRef.current = "replace";
     }
-  }, [aliasGroups, loadedSessions]);
+  }, [aliasGroups, loadedSessionTimeRanges, loadedSessions]);
 
   function applyAliases(groups: string[][]) {
     if (!rawStats) return;
@@ -531,6 +655,7 @@ export default function PokerStats() {
     setDragging(false);
     setIsParsing(false);
     setLoadedSessions([]);
+    setLoadedSessionTimeRanges([]);
   }
 
   const onDrop = useCallback((e: React.DragEvent) => {
@@ -831,7 +956,9 @@ export default function PokerStats() {
               onClick={() => {
                 if (!stats) return;
                 const sorted = [...stats].sort((a, b) => b.netChips - a.netChips);
-                const text = sorted
+                const latestRange = loadedSessionTimeRanges[loadedSessionTimeRanges.length - 1] ?? null;
+                const sessionHeader = latestRange ? formatSessionHeader(latestRange) : null;
+                const ledgerBody = sorted
                   .map((p) => {
                     const n = p.netChips;
                     const formatted = (Math.abs(n) >= 1000
@@ -840,6 +967,7 @@ export default function PokerStats() {
                     return `${selectedDisplayName(p.name, selectedNameByPlayer[p.name])}: ${formatted}`;
                   })
                   .join("\n");
+                const text = sessionHeader ? `${sessionHeader}\n${ledgerBody}` : ledgerBody;
                 navigator.clipboard.writeText(text);
                 setCopied(true);
                 setTimeout(() => setCopied(false), 2000);
