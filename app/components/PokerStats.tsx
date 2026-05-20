@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
+import { useRouter } from "next/navigation";
 import {
   type CBetRecord,
   type HandReference,
@@ -9,13 +10,18 @@ import {
   type PokerLogParseResult,
   type PlayerStats,
   type PreflopRaiseRecord,
+  type WSDRecord,
 } from "../lib/pokerParser";
+import type { SnapshotPayload } from "../lib/snapshotTypes";
 import PlayerAliasModal from "./PlayerAliasModal";
 import PlayerCBetModal from "./PlayerCBetModal";
+import PlayerNemesisModal from "./PlayerNemesisModal";
 import PlayerRaiseModal from "./PlayerRaiseModal";
 import PlayerSeeFlopModal from "./PlayerSeeFlopModal";
+import PlayerWSDModal from "./PlayerWSDModal";
+import { SuitText } from "./CardText";
 
-type SortKey = keyof PlayerStats;
+type SortKey = keyof PlayerStats | "nemesis";
 
 function baseName(name: string): string {
   const at = name.indexOf("@");
@@ -25,7 +31,7 @@ function baseName(name: string): string {
 
 function displayName(name: string): string {
   const aliases = baseName(name)
-    .split("/")
+    .split(" / ")
     .map((part) => part.trim())
     .filter((part) => part.length > 0);
   return aliases[0] ?? baseName(name);
@@ -33,7 +39,7 @@ function displayName(name: string): string {
 
 function displayNameOptions(name: string): string[] {
   const aliases = baseName(name)
-    .split("/")
+    .split(" / ")
     .map((part) => part.trim())
     .filter((part) => part.length > 0);
   return aliases.length > 0 ? aliases : [baseName(name)];
@@ -60,9 +66,26 @@ function sign(n: number): string {
   return `${n}`;
 }
 
+function tableBubbleClassName(options?: { active?: boolean; tone?: "green" | "neutral" }) {
+  const active = options?.active ?? false;
+  const tone = options?.tone ?? "green";
+
+  if (tone === "neutral") {
+    return active
+      ? "inline-flex items-center rounded-full border border-zinc-500 bg-zinc-800/80 px-2 py-0.5 transition-colors"
+      : "inline-flex items-center rounded-full border border-zinc-700 bg-zinc-900/70 px-2 py-0.5 transition-colors hover:border-zinc-500 hover:bg-zinc-800/80";
+  }
+
+  return active
+    ? "inline-flex items-center rounded-full border border-green-500/50 bg-green-500/10 px-2 py-0.5 transition-colors"
+    : "inline-flex items-center rounded-full border border-zinc-700 bg-zinc-900/70 px-2 py-0.5 transition-colors hover:border-green-500/40 hover:bg-green-500/5";
+}
+
 type RaiseMap = Record<string, PreflopRaiseRecord[]>;
 type CBetMap = Record<string, CBetRecord[]>;
 type HandNumberMap = Record<string, HandReference[]>;
+type WSDMap = Record<string, WSDRecord[]>;
+type H2HMap = Record<string, Record<string, number>>;
 type UploadMode = "replace" | "append";
 
 const COLUMNS: { key: SortKey; label: string; title: string }[] = [
@@ -76,6 +99,7 @@ const COLUMNS: { key: SortKey; label: string; title: string }[] = [
   { key: "vpipHands", label: "VPIP%", title: "Voluntarily Put money In Pot %" },
   { key: "pfrHands", label: "PFR%", title: "Preflop Raise %" },
   { key: "cbetHands", label: "CBet%", title: "Flop continuation bet % (after being last preflop aggressor)" },
+  { key: "wsdHands", label: "WSD%", title: "Won at Showdown % (outright showdowns won / showdowns reached). Split pots count as draws, not wins. Showdown = called or got called on the river." },
   { key: "aggActions", label: "AF", title: "Aggression Factor = (bets+raises) / calls" },
   { key: "handsWon", label: "Won", title: "Hands collected from pot" },
 ];
@@ -107,6 +131,8 @@ function mergeAliasedStats(raw: PlayerStats[], groups: string[][]): PlayerStats[
         aggActions: 0,
         callActions: 0,
         handsWon: 0,
+        wsdHands: 0,
+        wsdWins: 0,
         netChips: 0,
         buyIn: 0,
         finalStack: 0,
@@ -123,6 +149,8 @@ function mergeAliasedStats(raw: PlayerStats[], groups: string[][]): PlayerStats[
     merged[alias].aggActions += player.aggActions;
     merged[alias].callActions += player.callActions;
     merged[alias].handsWon += player.handsWon;
+    merged[alias].wsdHands += player.wsdHands;
+    merged[alias].wsdWins += player.wsdWins;
     merged[alias].netChips += player.netChips;
     merged[alias].buyIn += player.buyIn;
     merged[alias].finalStack += player.finalStack;
@@ -241,6 +269,81 @@ function mergeAliasedHandNumbers(raw: HandNumberMap, groups: string[][]): HandNu
     merged[key].sort((a, b) => a.sessionNumber - b.sessionNumber || a.handNumber - b.handNumber);
   }
 
+  return merged;
+}
+
+function autoMergeSameBaseNameWSD(raw: WSDMap): WSDMap {
+  const merged: WSDMap = {};
+  for (const [name, records] of Object.entries(raw)) {
+    merged[name] = [...records];
+  }
+  for (const key of Object.keys(merged)) {
+    merged[key].sort((a, b) => a.sessionNumber - b.sessionNumber || a.handNumber - b.handNumber);
+  }
+  return merged;
+}
+
+function mergeAliasedWSD(raw: WSDMap, groups: string[][]): WSDMap {
+  const aliasByName: Record<string, string> = {};
+
+  for (const group of groups) {
+    if (group.length === 0) continue;
+    const alias = group[0];
+    for (const name of group) {
+      aliasByName[name] = alias;
+    }
+  }
+
+  const merged: WSDMap = {};
+  for (const [name, records] of Object.entries(raw)) {
+    const alias = aliasByName[name] ?? name;
+    if (!merged[alias]) merged[alias] = [];
+    for (const rec of records) {
+      merged[alias].push({
+        ...rec,
+        opponents: rec.opponents.map((opp) => ({
+          ...opp,
+          name: aliasByName[opp.name] ?? opp.name,
+        })),
+      });
+    }
+  }
+
+  for (const key of Object.keys(merged)) {
+    merged[key].sort((a, b) => a.sessionNumber - b.sessionNumber || a.handNumber - b.handNumber);
+  }
+
+  return merged;
+}
+
+function autoMergeSameBaseNameH2H(raw: H2HMap): H2HMap {
+  const merged: H2HMap = {};
+  for (const [name, opponents] of Object.entries(raw)) {
+    merged[name] = { ...opponents };
+  }
+  return merged;
+}
+
+function mergeAliasedH2H(raw: H2HMap, groups: string[][]): H2HMap {
+  const aliasByName: Record<string, string> = {};
+  for (const group of groups) {
+    if (group.length === 0) continue;
+    const alias = group[0];
+    for (const name of group) {
+      aliasByName[name] = alias;
+    }
+  }
+
+  const merged: H2HMap = {};
+  for (const [name, opponents] of Object.entries(raw)) {
+    const alias = aliasByName[name] ?? name;
+    if (!merged[alias]) merged[alias] = {};
+    for (const [oppName, amount] of Object.entries(opponents)) {
+      const oppAlias = aliasByName[oppName] ?? oppName;
+      if (oppAlias === alias) continue; // same player after merge — skip
+      merged[alias][oppAlias] = Math.round(((merged[alias][oppAlias] ?? 0) + amount) * 10) / 10;
+    }
+  }
   return merged;
 }
 
@@ -470,7 +573,14 @@ function autoGroupBySimilarity(names: string[]): string[][] {
     .sort((a, b) => a[0].localeCompare(b[0]));
 }
 
-export default function PokerStats() {
+export default function PokerStats({
+  initialSnapshot,
+  snapshotId,
+}: {
+  initialSnapshot?: SnapshotPayload;
+  snapshotId?: string;
+} = {}) {
+  const router = useRouter();
   const [stats, setStats] = useState<PlayerStats[] | null>(null);
   const [rawStats, setRawStats] = useState<PlayerStats[] | null>(null);
   const [rawPreflopRaises, setRawPreflopRaises] = useState<RaiseMap | null>(null);
@@ -484,6 +594,12 @@ export default function PokerStats() {
   const [sawFlopHands, setSawFlopHands] = useState<HandNumberMap | null>(null);
   const [noFlopHands, setNoFlopHands] = useState<HandNumberMap | null>(null);
   const [selectedSeeFlopPlayer, setSelectedSeeFlopPlayer] = useState<string | null>(null);
+  const [rawWsdRecords, setRawWsdRecords] = useState<WSDMap | null>(null);
+  const [wsdRecords, setWsdRecords] = useState<WSDMap | null>(null);
+  const [selectedWsdPlayer, setSelectedWsdPlayer] = useState<string | null>(null);
+  const [rawH2H, setRawH2H] = useState<H2HMap | null>(null);
+  const [h2h, setH2H] = useState<H2HMap | null>(null);
+  const [selectedNemesisPlayer, setSelectedNemesisPlayer] = useState<string | null>(null);
   const [aliasGroups, setAliasGroups] = useState<string[][]>([]);
   const [aliasModalOpen, setAliasModalOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -496,8 +612,71 @@ export default function PokerStats() {
   const [copied, setCopied] = useState(false);
   const [selectedNameByPlayer, setSelectedNameByPlayer] = useState<Record<string, string>>({});
   const [openNameDropdownPlayer, setOpenNameDropdownPlayer] = useState<string | null>(null);
+  const [shareState, setShareState] = useState<
+    | { status: "idle" }
+    | { status: "saving" }
+    | { status: "saved"; url: string }
+    | { status: "error"; message: string }
+  >({ status: "idle" });
+  const [shareCopied, setShareCopied] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const uploadModeRef = useRef<UploadMode>("replace");
+
+  const applySessions = useCallback(
+    (
+      nextSessions: PokerLogParseResult[],
+      nextSessionTimeRanges: SessionTimeRange[],
+      groupOverride?: string[][],
+    ) => {
+      const mergedParsed = mergePokerLogResults(nextSessions);
+      const canonical = autoMergeSameBaseNamePlayers(mergedParsed.players);
+      const canonicalRaises = autoMergeSameBaseNameRaises(mergedParsed.preflopRaisesByPlayer);
+      const canonicalCBets = autoMergeSameBaseNameCBets(mergedParsed.cbetRecordsByPlayer);
+      const canonicalSawFlopHands = autoMergeSameBaseNameHandNumbers(
+        mergedParsed.sawFlopHandsByPlayer,
+      );
+      const canonicalNoFlopHands = autoMergeSameBaseNameHandNumbers(
+        mergedParsed.noFlopHandsByPlayer,
+      );
+      const canonicalWsd = autoMergeSameBaseNameWSD(mergedParsed.wsdRecordsByPlayer);
+      const canonicalH2H = autoMergeSameBaseNameH2H(mergedParsed.headToHeadByPlayer);
+      const nextAliasGroups =
+        groupOverride ?? canonical.map((p) => [p.name]);
+
+      setRawStats(canonical);
+      setRawPreflopRaises(canonicalRaises);
+      setRawCbetRecords(canonicalCBets);
+      setRawSawFlopHands(canonicalSawFlopHands);
+      setRawNoFlopHands(canonicalNoFlopHands);
+      setRawWsdRecords(canonicalWsd);
+      setRawH2H(canonicalH2H);
+      setLoadedSessions(nextSessions);
+      setLoadedSessionTimeRanges(nextSessionTimeRanges);
+      setAliasGroups(nextAliasGroups);
+      setStats(mergeAliasedStats(canonical, nextAliasGroups));
+      setPreflopRaises(mergeAliasedRaises(canonicalRaises, nextAliasGroups));
+      setCbetRecords(mergeAliasedCBets(canonicalCBets, nextAliasGroups));
+      setSawFlopHands(mergeAliasedHandNumbers(canonicalSawFlopHands, nextAliasGroups));
+      setNoFlopHands(mergeAliasedHandNumbers(canonicalNoFlopHands, nextAliasGroups));
+      setWsdRecords(mergeAliasedWSD(canonicalWsd, nextAliasGroups));
+      setH2H(mergeAliasedH2H(canonicalH2H, nextAliasGroups));
+    },
+    [],
+  );
+
+  // Hydrate from a server-provided snapshot exactly once.
+  const hydratedRef = useRef(false);
+  useEffect(() => {
+    if (hydratedRef.current) return;
+    if (!initialSnapshot) return;
+    hydratedRef.current = true;
+    applySessions(
+      initialSnapshot.sessions,
+      initialSnapshot.sessionTimeRanges,
+      initialSnapshot.aliasGroups,
+    );
+    setSelectedNameByPlayer(initialSnapshot.selectedNameByPlayer ?? {});
+  }, [initialSnapshot, applySessions]);
 
   const handleFiles = useCallback(async (files: FileList | File[], mode: UploadMode = "replace") => {
     const selectedFiles = Array.from(files);
@@ -516,12 +695,18 @@ export default function PokerStats() {
       setRawNoFlopHands(null);
       setSawFlopHands(null);
       setNoFlopHands(null);
+      setRawWsdRecords(null);
+      setWsdRecords(null);
+      setRawH2H(null);
+      setH2H(null);
       setSelectedNameByPlayer({});
     }
     setOpenNameDropdownPlayer(null);
     setSelectedPlayer(null);
     setSelectedCbetPlayer(null);
     setSelectedSeeFlopPlayer(null);
+    setSelectedWsdPlayer(null);
+    setSelectedNemesisPlayer(null);
     setAliasModalOpen(false);
 
     try {
@@ -549,39 +734,63 @@ export default function PokerStats() {
       const nextSessionTimeRanges = mode === "append"
         ? [...loadedSessionTimeRanges, ...parsedResults.map((result) => result.sessionTimeRange)]
         : parsedResults.map((result) => result.sessionTimeRange);
-      const mergedParsed = mergePokerLogResults(nextSessions);
-      const canonical = autoMergeSameBaseNamePlayers(mergedParsed.players);
-      const canonicalRaises = autoMergeSameBaseNameRaises(mergedParsed.preflopRaisesByPlayer);
-      const canonicalCBets = autoMergeSameBaseNameCBets(mergedParsed.cbetRecordsByPlayer);
-      const canonicalSawFlopHands = autoMergeSameBaseNameHandNumbers(mergedParsed.sawFlopHandsByPlayer);
-      const canonicalNoFlopHands = autoMergeSameBaseNameHandNumbers(mergedParsed.noFlopHandsByPlayer);
+      const mergedParsedForGroups = mergePokerLogResults(nextSessions);
+      const canonicalForGroups = autoMergeSameBaseNamePlayers(mergedParsedForGroups.players);
       const nextAliasGroups = mode === "append"
-        ? extendAliasGroups(aliasGroups, canonical.map((p) => p.name))
-        : canonical.map((p) => [p.name]);
+        ? extendAliasGroups(aliasGroups, canonicalForGroups.map((p) => p.name))
+        : canonicalForGroups.map((p) => [p.name]);
 
-      setRawStats(canonical);
-      setRawPreflopRaises(canonicalRaises);
-        setRawCbetRecords(canonicalCBets);
-      setRawSawFlopHands(canonicalSawFlopHands);
-      setRawNoFlopHands(canonicalNoFlopHands);
-      setLoadedSessions(nextSessions);
-      setLoadedSessionTimeRanges(nextSessionTimeRanges);
-      setAliasGroups(nextAliasGroups);
-      setStats(mergeAliasedStats(canonical, nextAliasGroups));
-      setPreflopRaises(mergeAliasedRaises(canonicalRaises, nextAliasGroups));
-      setCbetRecords(mergeAliasedCBets(canonicalCBets, nextAliasGroups));
-      setSawFlopHands(mergeAliasedHandNumbers(canonicalSawFlopHands, nextAliasGroups));
-      setNoFlopHands(mergeAliasedHandNumbers(canonicalNoFlopHands, nextAliasGroups));
+      applySessions(nextSessions, nextSessionTimeRanges, nextAliasGroups);
+      setShareState({ status: "idle" });
     } catch (err) {
       setError("Failed to parse the selected files. " + String(err));
     } finally {
       setIsParsing(false);
       uploadModeRef.current = "replace";
     }
-  }, [aliasGroups, loadedSessionTimeRanges, loadedSessions]);
+  }, [aliasGroups, loadedSessionTimeRanges, loadedSessions, applySessions]);
+
+  const handleShare = useCallback(async () => {
+    if (loadedSessions.length === 0) return;
+    setShareState({ status: "saving" });
+    setShareCopied(false);
+    try {
+      const payload: SnapshotPayload = {
+        version: 1,
+        sessions: loadedSessions,
+        sessionTimeRanges: loadedSessionTimeRanges,
+        aliasGroups,
+        selectedNameByPlayer,
+      };
+      const res = await fetch("/api/snapshots", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body?.error ?? `HTTP ${res.status}`);
+      }
+      const { id } = (await res.json()) as { id: string };
+      const url = `${window.location.origin}/s/${id}`;
+      setShareState({ status: "saved", url });
+      try {
+        await navigator.clipboard.writeText(url);
+        setShareCopied(true);
+      } catch {
+        // Clipboard access may be denied; the URL is still shown.
+      }
+    } catch (err) {
+      setShareState({
+        status: "error",
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }, [loadedSessions, loadedSessionTimeRanges, aliasGroups, selectedNameByPlayer]);
 
   function applyAliases(groups: string[][]) {
     if (!rawStats) return;
+    setShareState({ status: "idle" });
     setAliasGroups(groups);
     setStats(mergeAliasedStats(rawStats, groups));
     if (rawPreflopRaises) {
@@ -596,9 +805,17 @@ export default function PokerStats() {
     if (rawNoFlopHands) {
       setNoFlopHands(mergeAliasedHandNumbers(rawNoFlopHands, groups));
     }
+    if (rawWsdRecords) {
+      setWsdRecords(mergeAliasedWSD(rawWsdRecords, groups));
+    }
+    if (rawH2H) {
+      setH2H(mergeAliasedH2H(rawH2H, groups));
+    }
     setSelectedPlayer(null);
     setSelectedCbetPlayer(null);
     setSelectedSeeFlopPlayer(null);
+    setSelectedWsdPlayer(null);
+    setSelectedNemesisPlayer(null);
     setSelectedNameByPlayer({});
     setOpenNameDropdownPlayer(null);
     setAliasModalOpen(false);
@@ -610,6 +827,7 @@ export default function PokerStats() {
 
   function autoGroupPlayers() {
     if (!rawStats) return;
+    setShareState({ status: "idle" });
     const groups = autoGroupBySimilarity(rawStats.map((p) => p.name));
     setAliasGroups(groups);
     setStats(mergeAliasedStats(rawStats, groups));
@@ -625,9 +843,17 @@ export default function PokerStats() {
     if (rawNoFlopHands) {
       setNoFlopHands(mergeAliasedHandNumbers(rawNoFlopHands, groups));
     }
+    if (rawWsdRecords) {
+      setWsdRecords(mergeAliasedWSD(rawWsdRecords, groups));
+    }
+    if (rawH2H) {
+      setH2H(mergeAliasedH2H(rawH2H, groups));
+    }
     setSelectedPlayer(null);
     setSelectedCbetPlayer(null);
     setSelectedSeeFlopPlayer(null);
+    setSelectedWsdPlayer(null);
+    setSelectedNemesisPlayer(null);
     setSelectedNameByPlayer({});
     setOpenNameDropdownPlayer(null);
     setAliasModalOpen(false);
@@ -647,6 +873,12 @@ export default function PokerStats() {
     setSawFlopHands(null);
     setNoFlopHands(null);
     setSelectedSeeFlopPlayer(null);
+    setRawWsdRecords(null);
+    setWsdRecords(null);
+    setSelectedWsdPlayer(null);
+    setRawH2H(null);
+    setH2H(null);
+    setSelectedNemesisPlayer(null);
     setAliasGroups([]);
     setAliasModalOpen(false);
     setSelectedNameByPlayer({});
@@ -656,6 +888,12 @@ export default function PokerStats() {
     setIsParsing(false);
     setLoadedSessions([]);
     setLoadedSessionTimeRanges([]);
+    setShareState({ status: "idle" });
+    setShareCopied(false);
+
+    if (snapshotId) {
+      router.replace("/");
+    }
   }
 
   const onDrop = useCallback((e: React.DragEvent) => {
@@ -683,6 +921,12 @@ export default function PokerStats() {
   }
 
   const getSortValue = (player: PlayerStats, key: SortKey): number | string => {
+    if (key === "nemesis") {
+      const playerH2H = h2h?.[player.name] ?? {};
+      const nemesisNet = Object.values(playerH2H).filter((n) => n < 0).sort((a, b) => a - b)[0];
+      // Sort by most lost (most negative first). Players with no nemesis go to the end.
+      return nemesisNet ?? 0;
+    }
     if (key === "name") {
       return selectedDisplayName(player.name, selectedNameByPlayer[player.name]);
     }
@@ -695,13 +939,16 @@ export default function PokerStats() {
     if (key === "cbetHands") {
       return player.cbetOpportunities === 0 ? 0 : (player.cbetHands / player.cbetOpportunities) * 100;
     }
+    if (key === "wsdHands") {
+      return player.wsdHands === 0 ? 0 : (player.wsdWins / player.wsdHands) * 100;
+    }
     if (key === "sawFlopHands") {
       return player.handsDealt === 0 ? 0 : (player.sawFlopHands / player.handsDealt) * 100;
     }
     if (key === "aggActions") {
       return player.callActions === 0 ? (player.aggActions > 0 ? Infinity : 0) : player.aggActions / player.callActions;
     }
-    return player[key];
+    return player[key as keyof PlayerStats];
   };
 
   const sorted = stats
@@ -731,6 +978,10 @@ export default function PokerStats() {
 
   const selectedNoFlopHands = selectedSeeFlopPlayer && noFlopHands
     ? noFlopHands[selectedSeeFlopPlayer] ?? []
+    : [];
+
+  const selectedWsdRecords = selectedWsdPlayer && wsdRecords
+    ? wsdRecords[selectedWsdPlayer] ?? []
     : [];
 
   function renderCell(player: PlayerStats, key: SortKey, rowIndex: number, totalRows: number) {
@@ -813,12 +1064,13 @@ export default function PokerStats() {
             setOpenNameDropdownPlayer(null);
             setSelectedSeeFlopPlayer(player.name);
           }}
-          className={`rounded px-1 tabular-nums transition-colors hover:text-green-300 ${
+          className={`${tableBubbleClassName({ active: selectedSeeFlopPlayer === player.name })} tabular-nums ${
             selectedSeeFlopPlayer === player.name ? "text-green-300" : "text-zinc-300"
           }`}
           title="Show hand numbers for saw flop vs did not see flop"
+          aria-label={`Open see flop details for ${selectedDisplayName(player.name, selectedNameByPlayer[player.name])}`}
         >
-          {pct(player.sawFlopHands, player.handsDealt)}
+          <span>{pct(player.sawFlopHands, player.handsDealt)}</span>
         </button>
       );
     }
@@ -835,12 +1087,13 @@ export default function PokerStats() {
             setOpenNameDropdownPlayer(null);
             setSelectedPlayer(player.name);
           }}
-          className={`rounded px-1 tabular-nums transition-colors hover:text-green-300 ${
+          className={`${tableBubbleClassName({ active: selectedPlayer === player.name })} tabular-nums ${
             selectedPlayer === player.name ? "text-green-300" : "text-zinc-300"
           }`}
           title="Show preflop raises and revealed cards"
+          aria-label={`Open preflop raise details for ${selectedDisplayName(player.name, selectedNameByPlayer[player.name])}`}
         >
-          {pct(player.pfrHands, player.handsDealt)}
+          <span>{pct(player.pfrHands, player.handsDealt)}</span>
         </button>
       );
     }
@@ -853,12 +1106,13 @@ export default function PokerStats() {
             setOpenNameDropdownPlayer(null);
             setSelectedCbetPlayer(player.name);
           }}
-          className={`rounded px-1 tabular-nums transition-colors hover:text-green-300 ${
+          className={`${tableBubbleClassName({ active: selectedCbetPlayer === player.name })} tabular-nums ${
             selectedCbetPlayer === player.name ? "text-green-300" : "text-zinc-300"
           }`}
           title="Show continuation bets with hole cards and flop cards"
+          aria-label={`Open continuation bet details for ${selectedDisplayName(player.name, selectedNameByPlayer[player.name])}`}
         >
-          {pct(player.cbetHands, player.cbetOpportunities)}
+          <span>{pct(player.cbetHands, player.cbetOpportunities)}</span>
         </button>
       );
     }
@@ -867,11 +1121,30 @@ export default function PokerStats() {
       return <span className="tabular-nums text-zinc-300">{af(player.aggActions, player.callActions)}</span>;
     }
 
+    if (key === "wsdHands") {
+      return (
+        <button
+          type="button"
+          onClick={() => {
+            setOpenNameDropdownPlayer(null);
+            setSelectedWsdPlayer(player.name);
+          }}
+          className={`${tableBubbleClassName({ active: selectedWsdPlayer === player.name })} tabular-nums ${
+            selectedWsdPlayer === player.name ? "text-green-300" : "text-zinc-300"
+          }`}
+          title={`${player.wsdWins} / ${player.wsdHands} showdowns won — click to see hands`}
+          aria-label={`Open showdown details for ${selectedDisplayName(player.name, selectedNameByPlayer[player.name])}`}
+        >
+          <span>{pct(player.wsdWins, player.wsdHands)}</span>
+        </button>
+      );
+    }
+
     if (key === "handsWon") {
       return <span className="tabular-nums text-zinc-300">{player.handsWon}</span>;
     }
 
-    return <span className="text-zinc-300">{String(player[key])}</span>;
+    return <span className="text-zinc-300">{String(player[key as keyof PlayerStats])}</span>;
   }
 
   return (
@@ -890,7 +1163,7 @@ export default function PokerStats() {
         }}
       />
 
-      <h1 className="text-2xl font-bold mb-1 text-green-400">♠ Poker Fish</h1>
+      <h1 className="text-2xl font-bold mb-1 text-green-400"><SuitText suit="♠" /> Poker Fish</h1>
       {!rawStats ? (
         <>
           <p className="text-zinc-400 text-sm mb-6">
@@ -978,6 +1251,37 @@ export default function PokerStats() {
             </button>
             <button
               type="button"
+              onClick={() => {
+                if (shareState.status === "saved") {
+                  navigator.clipboard.writeText(shareState.url).then(
+                    () => {
+                      setShareCopied(true);
+                      setTimeout(() => setShareCopied(false), 2000);
+                    },
+                    () => {},
+                  );
+                  return;
+                }
+                void handleShare();
+              }}
+              disabled={shareState.status === "saving" || loadedSessions.length === 0}
+              className="w-36 rounded-lg border border-purple-700 bg-purple-950/40 px-3 py-2 text-sm font-semibold text-purple-300 hover:bg-purple-900/40 disabled:opacity-50"
+              title={
+                shareState.status === "saved"
+                  ? shareState.url
+                  : "Save current data and create a shareable link"
+              }
+            >
+              {shareState.status === "saving"
+                ? "Saving…"
+                : shareState.status === "saved"
+                ? shareCopied
+                  ? "✓ Link Copied!"
+                  : "Copy Share Link"
+                : "Share Snapshot"}
+            </button>
+            <button
+              type="button"
               onClick={clearAll}
               className="rounded-lg border border-red-700 bg-red-950/40 px-3 py-2 text-sm font-semibold text-red-300 hover:bg-red-900/40"
             >
@@ -990,6 +1294,31 @@ export default function PokerStats() {
       {error && (
         <p className="mt-4 text-red-400 text-sm bg-red-950/40 border border-red-800 rounded-lg px-4 py-3">
           {error}
+        </p>
+      )}
+
+      {shareState.status === "saved" && (
+        <div className="mt-4 flex flex-col gap-1 rounded-lg border border-purple-800 bg-purple-950/30 px-4 py-3 text-sm text-purple-200 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-col">
+            <span className="text-xs uppercase tracking-wider text-purple-400">Snapshot link</span>
+            <a
+              href={shareState.url}
+              className="break-all font-mono text-purple-200 hover:text-purple-100"
+              target="_blank"
+              rel="noreferrer"
+            >
+              {shareState.url}
+            </a>
+          </div>
+          <span className="text-xs text-purple-400">
+            Anyone with this link can view this exact table.
+          </span>
+        </div>
+      )}
+
+      {shareState.status === "error" && (
+        <p className="mt-4 text-red-400 text-sm bg-red-950/40 border border-red-800 rounded-lg px-4 py-3">
+          Failed to save snapshot: {shareState.message}
         </p>
       )}
 
@@ -1020,25 +1349,81 @@ export default function PokerStats() {
                     )}
                   </th>
                 ))}
+                <th
+                  title="Player you've lost the most chips to — click to sort"
+                  onClick={() => toggleSort("nemesis")}
+                  className={`px-4 py-3 cursor-pointer select-none whitespace-nowrap text-left uppercase text-xs tracking-wider transition-colors hover:text-zinc-100 ${
+                    sortKey === "nemesis" ? "text-green-400" : "text-zinc-400"
+                  }`}
+                >
+                  Nemesis
+                  {sortKey === "nemesis" && (
+                    <span className="ml-1">{sortAsc ? "▲" : "▼"}</span>
+                  )}
+                </th>
               </tr>
             </thead>
             <tbody>
-              {sorted.map((p, i) => (
-                <tr
-                  key={p.name}
-                  className={`border-t border-zinc-800 transition-colors hover:bg-zinc-800/50
-                    ${i % 2 === 0 ? "bg-zinc-900/40" : "bg-zinc-900/10"}`}
-                >
-                  {COLUMNS.map((col) => (
-                    <td
-                      key={String(col.key)}
-                      className={`px-4 py-3 ${col.key === "name" ? "whitespace-nowrap" : ""}`}
-                    >
-                      {renderCell(p, col.key, i, sorted.length)}
+              {sorted.map((p, i) => {
+                const playerH2H = h2h?.[p.name] ?? {};
+                const nemesisEntry = Object.entries(playerH2H)
+                  .filter(([, n]) => n < 0)
+                  .sort(([, a], [, b]) => a - b)[0];
+                const nemesisName = nemesisEntry?.[0] ?? null;
+                const nemesisNet = nemesisEntry?.[1] ?? null;
+                return (
+                  <tr
+                    key={p.name}
+                    className={`border-t border-zinc-800 transition-colors hover:bg-zinc-800/50
+                      ${i % 2 === 0 ? "bg-zinc-900/40" : "bg-zinc-900/10"}`}
+                  >
+                    {COLUMNS.map((col) => (
+                      <td
+                        key={String(col.key)}
+                        className={`px-4 py-3 ${col.key === "name" ? "whitespace-nowrap" : ""}`}
+                      >
+                        {renderCell(p, col.key, i, sorted.length)}
+                      </td>
+                    ))}
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      {nemesisName ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setOpenNameDropdownPlayer(null);
+                            setSelectedNemesisPlayer(p.name);
+                          }}
+                          className={`${tableBubbleClassName({ active: selectedNemesisPlayer === p.name })} tabular-nums text-left ${
+                            selectedNemesisPlayer === p.name ? "text-green-300" : "text-zinc-300"
+                          }`}
+                          title="Click to see full head-to-head breakdown"
+                          aria-label={`Open nemesis details for ${selectedDisplayName(p.name, selectedNameByPlayer[p.name])}`}
+                        >
+                          <span className="truncate">
+                            {selectedDisplayName(nemesisName, selectedNameByPlayer[nemesisName])}
+                            <span className="ml-1 text-xs text-zinc-500">({nemesisNet!.toFixed(1)})</span>
+                          </span>
+                        </button>
+                      ) : Object.keys(playerH2H).length > 0 ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setOpenNameDropdownPlayer(null);
+                            setSelectedNemesisPlayer(p.name);
+                          }}
+                          className={`${tableBubbleClassName({ tone: "neutral" })} text-left text-zinc-500 hover:text-zinc-300`}
+                          title="Click to see full head-to-head breakdown"
+                          aria-label={`Open head-to-head details for ${selectedDisplayName(p.name, selectedNameByPlayer[p.name])}`}
+                        >
+                          <span>No Nemesis</span>
+                        </button>
+                      ) : (
+                        <span className="text-zinc-600">—</span>
+                      )}
                     </td>
-                  ))}
-                </tr>
-              ))}
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
           <div className="px-4 py-2 bg-zinc-900 border-t border-zinc-800 text-xs text-zinc-500">
@@ -1072,6 +1457,22 @@ export default function PokerStats() {
         sessionCount={loadedSessions.length}
       />
 
+      <PlayerWSDModal
+        open={!!selectedWsdPlayer}
+        playerName={selectedWsdPlayer ? selectedDisplayName(selectedWsdPlayer, selectedNameByPlayer[selectedWsdPlayer]) : ""}
+        records={selectedWsdRecords}
+        onClose={() => setSelectedWsdPlayer(null)}
+        sessionCount={loadedSessions.length}
+      />
+
+      <PlayerNemesisModal
+        open={!!selectedNemesisPlayer}
+        playerName={selectedNemesisPlayer ? selectedDisplayName(selectedNemesisPlayer, selectedNameByPlayer[selectedNemesisPlayer]) : ""}
+        headToHead={selectedNemesisPlayer && h2h ? (h2h[selectedNemesisPlayer] ?? {}) : {}}
+        getDisplayName={(name) => selectedDisplayName(name, selectedNameByPlayer[name])}
+        onClose={() => setSelectedNemesisPlayer(null)}
+      />
+
       {sorted && (
         <div className="mt-4 grid grid-cols-2 gap-3 text-xs text-zinc-500 sm:grid-cols-3 lg:grid-cols-6">
           <div><span className="text-zinc-400 font-medium">Buy-in</span> — total chips bought in (incl. rebuys)</div>
@@ -1081,11 +1482,17 @@ export default function PokerStats() {
           <div><span className="text-zinc-400 font-medium">VPIP%</span> — voluntarily put money in pot preflop</div>
           <div><span className="text-zinc-400 font-medium">PFR%</span> — preflop raise %</div>
           <div><span className="text-zinc-400 font-medium">CBet%</span> — flop bet/raise after being last preflop aggressor</div>
+          <div><span className="text-zinc-400 font-medium">WSD%</span> — outright won at showdown (split pots count as draws, not wins)</div>
           <div><span className="text-zinc-400 font-medium">See Flop%</span> — did not fold preflop / hands played</div>
           <div><span className="text-zinc-400 font-medium">AF</span> — aggression factor (bets+raises / calls)</div>
           <div><span className="text-zinc-400 font-medium">Won</span> — times collected from pot</div>
         </div>
       )}
+
+      <p className="mt-8 rounded-lg border border-amber-800/70 bg-amber-950/30 px-4 py-3 text-sm text-amber-100">
+        If you live in Singapore and want to help fund the creator of this project, consider sending a tip via PayNow to
+        {" "} <span className="font-semibold tracking-wide">91069528</span>, under the comments put pokerfish! :D
+      </p>
     </div>
   );
 }

@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import type { PreflopRaiseRecord } from "../lib/pokerParser";
+import { CardPair } from "./CardText";
 
 interface PlayerRaiseModalProps {
   open: boolean;
@@ -144,7 +145,7 @@ export default function PlayerRaiseModal({
                       <td className="px-3 py-2 tabular-nums text-zinc-300">{r.raiseTo}</td>
                       <td className="px-3 py-2 tabular-nums text-zinc-300">{r.raiseOverPrevBet}</td>
                       <td className="px-3 py-2 text-zinc-300">
-                        {r.holeCards ? `${r.holeCards[0]} ${r.holeCards[1]}` : "-"}
+                        {r.holeCards ? <CardPair cards={r.holeCards} /> : "-"}
                       </td>
                     </tr>
                   ))}

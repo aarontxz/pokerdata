@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import type { CBetRecord } from "../lib/pokerParser";
+import { CardPair, CardRow } from "./CardText";
 
 interface PlayerCBetModalProps {
   open: boolean;
@@ -16,14 +17,6 @@ function formatHandRef(r: CBetRecord, sessionCount?: number): string {
     return `#${r.handNumber}`;
   }
   return `(#${r.sessionNumber},#${r.handNumber})`;
-}
-
-function formatHoleCards(r: CBetRecord): string {
-  return r.holeCards ? `${r.holeCards[0]} ${r.holeCards[1]}` : "-";
-}
-
-function formatFlop(r: CBetRecord): string {
-  return r.flopCards ? `${r.flopCards[0]} ${r.flopCards[1]} ${r.flopCards[2]}` : "-";
 }
 
 function fmtAmount(n: number): string {
@@ -147,8 +140,12 @@ export default function PlayerCBetModal({
                       className={`border-t border-zinc-800 ${i % 2 === 0 ? "bg-zinc-900/20" : "bg-zinc-900/5"}`}
                     >
                       <td className="px-3 py-2 text-zinc-300">{formatHandRef(r, sessionCount)}</td>
-                      <td className="px-3 py-2 text-zinc-300">{formatHoleCards(r)}</td>
-                      <td className="px-3 py-2 text-zinc-300">{formatFlop(r)}</td>
+                      <td className="px-3 py-2 text-zinc-300">
+                        {r.holeCards ? <CardPair cards={r.holeCards} /> : "-"}
+                      </td>
+                      <td className="px-3 py-2 text-zinc-300">
+                        {r.flopCards ? <CardRow cards={r.flopCards} /> : "-"}
+                      </td>
                       <td className="px-3 py-2 tabular-nums text-zinc-300">{fmtAmount(r.potBeforeCBet)}</td>
                       <td className="px-3 py-2 tabular-nums text-zinc-300">{fmtAmount(r.cbetAmount)}</td>
                     </tr>
