@@ -344,6 +344,7 @@ interface HandState {
   players: string[];
   sbPlayer: string | null;
   bbPlayer: string | null;
+  bigBlindAmount: number;
   street: "preflop" | "flop" | "turn" | "river";
   // Highest total contribution any player has on current street
   streetTarget: number;
@@ -655,10 +656,18 @@ export function parsePokerLogDetailed(content: string): PokerLogParseResult {
     const slots = getBlindSlots(h, name);
     const slotAmounts = getBlindSlotAmounts(h, name);
     if (slots.big !== "dead") return;
-    if (slots.small === "live") return;
+    const currentLive = h.streetPutIn[name] ?? 0;
+    const targetBigBlind = h.bigBlindAmount || h.streetTarget;
+    const liveCreditNeeded = Math.max(0, targetBigBlind - currentLive);
+    const promoted = Math.min(slotAmounts.big, liveCreditNeeded);
+
     slots.big = "live";
-    h.streetPutIn[name] = r2((h.streetPutIn[name] ?? 0) + slotAmounts.big);
-    h.streetTarget = Math.max(h.streetTarget, h.streetPutIn[name] ?? 0);
+    slotAmounts.big = promoted;
+
+    if (promoted <= 0) return;
+
+    h.streetPutIn[name] = r2(currentLive + promoted);
+    h.streetTarget = Math.max(h.streetTarget, targetBigBlind, h.streetPutIn[name] ?? 0);
   }
 
   function resetStreet(h: HandState) {
@@ -875,6 +884,7 @@ export function parsePokerLogDetailed(content: string): PokerLogParseResult {
         players: [],
         sbPlayer: null,
         bbPlayer: null,
+        bigBlindAmount: 0,
         street: "preflop",
         streetTarget: 0,
         streetPutIn: {},
@@ -1224,6 +1234,7 @@ export function parsePokerLogDetailed(content: string): PokerLogParseResult {
     if (bbM) {
       hand.bbPlayer = bbM[1];
       const amount = parseFloat(bbM[2]);
+      hand.bigBlindAmount = amount;
       if (postBlind(hand, bbM[1], amount, "big", true)) {
         logAction(hand.handNumber, bbM[1], "big-blind", amount);
       }
