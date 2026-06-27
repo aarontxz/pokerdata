@@ -11,4 +11,5 @@ export interface SnapshotPayload {
   sessionTimeRanges: SessionTimeRange[];
   aliasGroups: string[][];
   selectedNameByPlayer: Record<string, string>;
+  selfPlayerName?: string | null;
 }

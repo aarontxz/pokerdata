@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import {
   type CBetRecord,
   type HandReference,
+  getPartialSession,
   mergePokerLogResults,
   parsePokerLogDetailed,
   type PokerLogParseResult,
@@ -20,6 +21,8 @@ import PlayerRaiseModal from "./PlayerRaiseModal";
 import PlayerSeeFlopModal from "./PlayerSeeFlopModal";
 import PlayerWSDModal from "./PlayerWSDModal";
 import { SuitText } from "./CardText";
+import HandReplayPanel from "./HandReplayPanel";
+import NetChipsChart from "./NetChipsChart";
 
 type SortKey = keyof PlayerStats | "nemesis";
 
@@ -619,6 +622,11 @@ export default function PokerStats({
     | { status: "error"; message: string }
   >({ status: "idle" });
   const [shareCopied, setShareCopied] = useState(false);
+  const [selfPlayerName, setSelfPlayerName] = useState<string | null>(null);
+  const [timelineSheet, setTimelineSheet] = useState<number | null>(null);
+  const [timelineHand, setTimelineHand] = useState<number | null>(null);
+  const [sheetManagerOpen, setSheetManagerOpen] = useState(false);
+  const [dragIdx, setDragIdx] = useState<number | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const uploadModeRef = useRef<UploadMode>("replace");
 
@@ -664,6 +672,51 @@ export default function PokerStats({
     [],
   );
 
+  const applyTimelineCutoff = useCallback(
+    (sessions: PokerLogParseResult[], sheet: number | null, hand: number | null, groups: string[][]) => {
+      if (sheet === null || hand === null || sessions.length === 0) {
+        return;
+      }
+
+      const partialSessions: PokerLogParseResult[] = [];
+      for (let i = 0; i < sessions.length; i++) {
+        const sessionNum = i + 1;
+        if (sessionNum < sheet) {
+          partialSessions.push(sessions[i]);
+        } else if (sessionNum === sheet) {
+          partialSessions.push(getPartialSession(sessions[i], hand));
+        }
+      }
+
+      if (partialSessions.length === 0) return;
+
+      const mergedParsed = mergePokerLogResults(partialSessions);
+      const canonical = autoMergeSameBaseNamePlayers(mergedParsed.players);
+      const canonicalRaises = autoMergeSameBaseNameRaises(mergedParsed.preflopRaisesByPlayer);
+      const canonicalCBets = autoMergeSameBaseNameCBets(mergedParsed.cbetRecordsByPlayer);
+      const canonicalSawFlopHands = autoMergeSameBaseNameHandNumbers(mergedParsed.sawFlopHandsByPlayer);
+      const canonicalNoFlopHands = autoMergeSameBaseNameHandNumbers(mergedParsed.noFlopHandsByPlayer);
+      const canonicalWsd = autoMergeSameBaseNameWSD(mergedParsed.wsdRecordsByPlayer);
+      const canonicalH2H = autoMergeSameBaseNameH2H(mergedParsed.headToHeadByPlayer);
+
+      setRawStats(canonical);
+      setRawPreflopRaises(canonicalRaises);
+      setRawCbetRecords(canonicalCBets);
+      setRawSawFlopHands(canonicalSawFlopHands);
+      setRawNoFlopHands(canonicalNoFlopHands);
+      setRawWsdRecords(canonicalWsd);
+      setRawH2H(canonicalH2H);
+      setStats(mergeAliasedStats(canonical, groups));
+      setPreflopRaises(mergeAliasedRaises(canonicalRaises, groups));
+      setCbetRecords(mergeAliasedCBets(canonicalCBets, groups));
+      setSawFlopHands(mergeAliasedHandNumbers(canonicalSawFlopHands, groups));
+      setNoFlopHands(mergeAliasedHandNumbers(canonicalNoFlopHands, groups));
+      setWsdRecords(mergeAliasedWSD(canonicalWsd, groups));
+      setH2H(mergeAliasedH2H(canonicalH2H, groups));
+    },
+    [],
+  );
+
   // Hydrate from a server-provided snapshot exactly once.
   const hydratedRef = useRef(false);
   useEffect(() => {
@@ -676,6 +729,7 @@ export default function PokerStats({
       initialSnapshot.aliasGroups,
     );
     setSelectedNameByPlayer(initialSnapshot.selectedNameByPlayer ?? {});
+    setSelfPlayerName(initialSnapshot.selfPlayerName ?? null);
   }, [initialSnapshot, applySessions]);
 
   const handleFiles = useCallback(async (files: FileList | File[], mode: UploadMode = "replace") => {
@@ -708,6 +762,8 @@ export default function PokerStats({
     setSelectedWsdPlayer(null);
     setSelectedNemesisPlayer(null);
     setAliasModalOpen(false);
+    setTimelineSheet(null);
+    setTimelineHand(null);
 
     try {
       const parsedResults = await Promise.all(
@@ -742,13 +798,22 @@ export default function PokerStats({
 
       applySessions(nextSessions, nextSessionTimeRanges, nextAliasGroups);
       setShareState({ status: "idle" });
+
+      const lastSession = nextSessions[nextSessions.length - 1];
+      if (lastSession && lastSession.totalHands > 0) {
+        const lastSheet = nextSessions.length;
+        const lastHand = lastSession.totalHands;
+        setTimelineSheet(lastSheet);
+        setTimelineHand(lastHand);
+        applyTimelineCutoff(nextSessions, lastSheet, lastHand, nextAliasGroups);
+      }
     } catch (err) {
       setError("Failed to parse the selected files. " + String(err));
     } finally {
       setIsParsing(false);
       uploadModeRef.current = "replace";
     }
-  }, [aliasGroups, loadedSessionTimeRanges, loadedSessions, applySessions]);
+  }, [aliasGroups, loadedSessionTimeRanges, loadedSessions, applySessions, applyTimelineCutoff]);
 
   const handleShare = useCallback(async () => {
     if (loadedSessions.length === 0) return;
@@ -761,6 +826,7 @@ export default function PokerStats({
         sessionTimeRanges: loadedSessionTimeRanges,
         aliasGroups,
         selectedNameByPlayer,
+        selfPlayerName,
       };
       const res = await fetch("/api/snapshots", {
         method: "POST",
@@ -882,6 +948,7 @@ export default function PokerStats({
     setAliasGroups([]);
     setAliasModalOpen(false);
     setSelectedNameByPlayer({});
+    setSelfPlayerName(null);
     setOpenNameDropdownPlayer(null);
     setError(null);
     setDragging(false);
@@ -890,10 +957,44 @@ export default function PokerStats({
     setLoadedSessionTimeRanges([]);
     setShareState({ status: "idle" });
     setShareCopied(false);
+    setTimelineSheet(null);
+    setTimelineHand(null);
+    setSheetManagerOpen(false);
+    setDragIdx(null);
 
     if (snapshotId) {
       router.replace("/");
     }
+  }
+
+  function deleteSheet(index: number) {
+    const nextSessions = loadedSessions.filter((_, i) => i !== index);
+    const nextRanges = loadedSessionTimeRanges.filter((_, i) => i !== index);
+    if (nextSessions.length === 0) {
+      clearAll();
+      return;
+    }
+    setTimelineSheet(null);
+    setTimelineHand(null);
+    setShareState({ status: "idle" });
+    const mergedForGroups = mergePokerLogResults(nextSessions);
+    const canonicalForGroups = autoMergeSameBaseNamePlayers(mergedForGroups.players);
+    const nextAliasGroups = extendAliasGroups(aliasGroups, canonicalForGroups.map((p) => p.name));
+    applySessions(nextSessions, nextRanges, nextAliasGroups);
+  }
+
+  function reorderSheets(fromIdx: number, toIdx: number) {
+    if (fromIdx === toIdx) return;
+    const nextSessions = [...loadedSessions];
+    const nextRanges = [...loadedSessionTimeRanges];
+    const [movedSession] = nextSessions.splice(fromIdx, 1);
+    const [movedRange] = nextRanges.splice(fromIdx, 1);
+    nextSessions.splice(toIdx, 0, movedSession);
+    nextRanges.splice(toIdx, 0, movedRange);
+    setTimelineSheet(null);
+    setTimelineHand(null);
+    setShareState({ status: "idle" });
+    applySessions(nextSessions, nextRanges, aliasGroups);
   }
 
   const onDrop = useCallback((e: React.DragEvent) => {
@@ -963,6 +1064,51 @@ export default function PokerStats({
         return sortAsc ? an - bn : bn - an;
       })
     : null;
+
+  // Per-hand P&L for the "self" player in the currently displayed session.
+  // Uses handLedgerSnapshots (cumulative netChips deltas) to compute each hand's result.
+  const selfHandPnL = useMemo<Record<number, number>>(() => {
+    if (!selfPlayerName || timelineSheet === null) return {};
+    const session = loadedSessions[timelineSheet - 1];
+    if (!session) return {};
+    const group = aliasGroups.find((g) => g[0] === selfPlayerName);
+    if (!group) return {};
+    // Strip " (#N)" session tags so names match the session-local snapshot keys.
+    const rawNames = new Set(group.map((n) => n.replace(/\s*\(#\d+\)\s*$/, "").trim()));
+    const snapshots = session.handLedgerSnapshots;
+    const result: Record<number, number> = {};
+    for (let i = 0; i < snapshots.length; i++) {
+      const snap = snapshots[i];
+      const prevSnap = i > 0 ? snapshots[i - 1] : null;
+      let pnl = 0;
+      for (const rawName of rawNames) {
+        const curr = snap.playerStats[rawName]?.netChips ?? 0;
+        const prev = prevSnap?.playerStats[rawName]?.netChips ?? 0;
+        pnl += curr - prev;
+      }
+      result[snap.handNumber] = Math.round(pnl * 100) / 100;
+    }
+    return result;
+  }, [selfPlayerName, timelineSheet, loadedSessions, aliasGroups]);
+
+  const selfHandCards = useMemo<Record<number, string[]>>(() => {
+    if (!selfPlayerName || timelineSheet === null) return {};
+    const session = loadedSessions[timelineSheet - 1];
+    if (!session) return {};
+    const group = aliasGroups.find((g) => g[0] === selfPlayerName);
+    if (!group) return {};
+    const rawNames = new Set(group.map((n) => n.replace(/\s*\(#\d+\)\s*$/, "").trim()));
+    const result: Record<number, string[]> = {};
+    for (const replay of session.handReplays) {
+      for (const action of replay.actions) {
+        if (action.type === "show-cards" && action.player && action.cards && rawNames.has(action.player)) {
+          result[replay.handNumber] = action.cards;
+          break;
+        }
+      }
+    }
+    return result;
+  }, [selfPlayerName, timelineSheet, loadedSessions, aliasGroups]);
 
   const selectedRaises = selectedPlayer && preflopRaises
     ? (preflopRaises[selectedPlayer] ?? []).filter((r) => r.holeCards !== null)
@@ -1290,6 +1436,219 @@ export default function PokerStats({
           </div>
         </div>
       )}
+
+      {sorted && (
+        <div className="mt-3 flex items-center gap-3 rounded-xl border border-zinc-800 bg-zinc-900/30 px-3 py-2">
+          <span className="text-xs font-semibold uppercase tracking-wider text-zinc-400 shrink-0">Focus Player</span>
+          <select
+            value={selfPlayerName ?? ""}
+            onChange={(e) => setSelfPlayerName(e.target.value || null)}
+            className="flex-1 rounded border border-zinc-700 bg-zinc-800 px-2 py-1 text-sm text-zinc-200 focus:border-amber-500 focus:outline-none"
+          >
+            <option value="">— select a player to focus —</option>
+            {sorted.map((p) => (
+              <option key={p.name} value={p.name}>
+                {selectedDisplayName(p.name, selectedNameByPlayer[p.name])}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      {loadedSessions.length > 1 && (
+        <div className="mt-3 rounded-xl border border-zinc-800 bg-zinc-900/30 p-3">
+          <button
+            type="button"
+            onClick={() => setSheetManagerOpen((v) => !v)}
+            className="flex w-full items-center justify-between"
+          >
+            <span className="text-xs font-semibold uppercase tracking-wider text-zinc-400">
+              Sheets ({loadedSessions.length})
+            </span>
+            <span className="text-xs text-zinc-500">{sheetManagerOpen ? "▲" : "▼"}</span>
+          </button>
+          {sheetManagerOpen && (
+            <div className="mt-2 flex flex-col gap-1">
+              {loadedSessions.map((session, idx) => {
+                const range = loadedSessionTimeRanges[idx];
+                const label = range ? formatSessionHeader(range) : null;
+                const handCount = session.totalHands;
+                const isDragging = dragIdx === idx;
+                return (
+                  <div
+                    key={idx}
+                    draggable
+                    onDragStart={() => setDragIdx(idx)}
+                    onDragEnd={() => setDragIdx(null)}
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      e.dataTransfer.dropEffect = "move";
+                    }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      if (dragIdx !== null && dragIdx !== idx) {
+                        reorderSheets(dragIdx, idx);
+                      }
+                      setDragIdx(null);
+                    }}
+                    className={`flex items-center gap-2 rounded-lg border px-3 py-2 transition-colors ${
+                      isDragging
+                        ? "border-amber-600 bg-amber-950/30 opacity-50"
+                        : "border-zinc-700 bg-zinc-800/40 hover:bg-zinc-800/70"
+                    }`}
+                    style={{ cursor: "grab" }}
+                  >
+                    <span className="text-zinc-600 text-xs select-none" title="Drag to reorder">⠿</span>
+                    <span className="text-xs font-medium text-zinc-300 flex-1 truncate">
+                      Sheet {idx + 1}
+                      {label && <span className="ml-2 text-zinc-500 font-normal">{label}</span>}
+                    </span>
+                    <span className="text-[10px] text-zinc-500 tabular-nums shrink-0">{handCount} hands</span>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        deleteSheet(idx);
+                      }}
+                      className="ml-1 rounded p-0.5 text-zinc-600 hover:text-red-400 hover:bg-red-950/40 transition-colors"
+                      title={`Remove Sheet ${idx + 1}`}
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {loadedSessions.length > 0 && loadedSessions.some((s) => s.totalHands > 0) && (() => {
+        const isActive = timelineSheet !== null && timelineHand !== null;
+        const currentSheet = timelineSheet ?? 1;
+        const maxHandForSheet = loadedSessions[currentSheet - 1]?.totalHands ?? 0;
+        const currentHand = timelineHand ?? maxHandForSheet;
+        const currentSnapshots = loadedSessions[currentSheet - 1]?.handLedgerSnapshots ?? [];
+
+        let currentSnapshotIndex: number | null = null;
+        if (isActive) {
+          for (let i = currentSnapshots.length - 1; i >= 0; i--) {
+            if (currentSnapshots[i].handNumber <= currentHand) {
+              currentSnapshotIndex = i;
+              break;
+            }
+          }
+        }
+
+        function handleSheetChange(val: number) {
+          const clamped = Math.max(1, Math.min(val, loadedSessions.length));
+          const newMax = loadedSessions[clamped - 1]?.totalHands ?? 0;
+          const newHand = newMax;
+          setTimelineSheet(clamped);
+          setTimelineHand(newHand);
+          applyTimelineCutoff(loadedSessions, clamped, newHand, aliasGroups);
+        }
+
+        function handleHandChange(val: number) {
+          const sheet = timelineSheet ?? 1;
+          const max = loadedSessions[sheet - 1]?.totalHands ?? 0;
+          const clamped = Math.max(1, Math.min(val, max));
+          setTimelineSheet(sheet);
+          setTimelineHand(clamped);
+          applyTimelineCutoff(loadedSessions, sheet, clamped, aliasGroups);
+        }
+
+        function handleChartHandChange(handNumber: number) {
+          const sheet = timelineSheet ?? 1;
+          setTimelineSheet(sheet);
+          setTimelineHand(handNumber);
+          applyTimelineCutoff(loadedSessions, sheet, handNumber, aliasGroups);
+        }
+
+        return (
+          <div className="mt-3 rounded-xl border border-zinc-800 bg-zinc-900/30 p-3">
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-semibold uppercase tracking-wider text-zinc-400">
+                  Time Machine
+                </span>
+                {isActive && (
+                  <span className="text-xs text-amber-400">
+                    Sheet {currentSheet}, Hand {currentHand} of {maxHandForSheet}
+                  </span>
+                )}
+              </div>
+              {loadedSessions.length > 1 && (
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-zinc-500">Sheet</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={loadedSessions.length}
+                    value={currentSheet}
+                    onChange={(e) => {
+                      const v = parseInt(e.target.value);
+                      if (!Number.isNaN(v)) handleSheetChange(v);
+                    }}
+                    className="w-20 rounded border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-sm text-zinc-200 text-center tabular-nums"
+                  />
+                  <span className="text-sm text-zinc-500 tabular-nums">/ {loadedSessions.length}</span>
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center gap-3 mb-2">
+              <input
+                type="range"
+                min={1}
+                max={maxHandForSheet || 1}
+                value={currentHand}
+                onChange={(e) => handleHandChange(parseInt(e.target.value))}
+                className="flex-1 accent-amber-500"
+                disabled={maxHandForSheet === 0}
+              />
+              <div className="w-48 shrink-0 flex items-center gap-2">
+                <span className="text-sm text-zinc-500">Hand</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={maxHandForSheet || 1}
+                  value={currentHand}
+                  onChange={(e) => {
+                    const v = parseInt(e.target.value);
+                    if (!Number.isNaN(v)) handleHandChange(v);
+                  }}
+                  className="w-20 rounded border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-sm text-zinc-200 text-center tabular-nums"
+                  disabled={maxHandForSheet === 0}
+                />
+                <span className="text-sm text-zinc-500 tabular-nums">/ {maxHandForSheet}</span>
+              </div>
+            </div>
+
+            {isActive && (
+              <HandReplayPanel
+                handReplays={loadedSessions[currentSheet - 1]?.handReplays ?? []}
+                currentHandNumber={currentHand}
+                getDisplayName={(name) => selectedDisplayName(name, selectedNameByPlayer[name])}
+                onHandChange={handleChartHandChange}
+                selfHandPnL={selfHandPnL}
+                selfHandCards={selfHandCards}
+              />
+            )}
+
+            <NetChipsChart
+              snapshots={currentSnapshots}
+              currentHandIndex={currentSnapshotIndex}
+              onHandChange={handleChartHandChange}
+              getDisplayName={(name) => selectedDisplayName(name, selectedNameByPlayer[name])}
+              aliasGroups={aliasGroups}
+              selfPlayerName={selfPlayerName}
+            />
+          </div>
+        );
+      })()}
 
       {error && (
         <p className="mt-4 text-red-400 text-sm bg-red-950/40 border border-red-800 rounded-lg px-4 py-3">
