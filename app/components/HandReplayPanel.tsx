@@ -65,6 +65,14 @@ export default function HandReplayPanel({
   const [open, setOpen] = useState(true);
   const [step, setStep] = useState(0);
   const actionListRef = useRef<HTMLDivElement>(null);
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 639px)");
+    setIsMobile(mq.matches);
+    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches);
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, []);
 
   const replay = useMemo(() => {
     if (currentHandNumber === null) return null;
@@ -303,7 +311,14 @@ export default function HandReplayPanel({
 
           {/* ── Poker Table ── */}
           {replay && (<>
-          <div className="relative mx-auto my-4 select-none" style={{ width: "100%", maxWidth: 560, aspectRatio: "56/38" }}>
+          <div
+            className="relative mx-auto my-4 select-none"
+            style={{
+              width: "100%",
+              maxWidth: isMobile ? 360 : 560,
+              aspectRatio: isMobile ? "36/50" : "56/38",
+            }}
+          >
             {/* Tap zones — mobile only */}
             <div
               className="absolute inset-y-0 left-0 w-1/2 z-30 sm:hidden"
@@ -327,24 +342,24 @@ export default function HandReplayPanel({
             <div className="absolute inset-6 rounded-[50%] border border-emerald-700/20" />
 
             {/* Center: board + pot */}
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 pointer-events-none z-10">
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 sm:gap-1.5 pointer-events-none z-10">
               {boardCards.length > 0 ? (
-                <div className="flex gap-1.5 rounded-xl bg-black/25 px-3 py-1.5 backdrop-blur-sm border border-white/5">
+                <div className="flex gap-1 sm:gap-1.5 rounded-xl bg-black/25 px-2 py-1 sm:px-3 sm:py-1.5 backdrop-blur-sm border border-white/5">
                   {boardCards.map((card, ci) => (
-                    <div key={ci} className="rounded bg-zinc-900 border border-zinc-600 px-1.5 py-1 text-sm font-bold shadow-sm">
+                    <div key={ci} className="rounded bg-zinc-900 border border-zinc-600 px-1 py-0.5 sm:px-1.5 sm:py-1 text-xs sm:text-sm font-bold shadow-sm">
                       <CardPair cards={[card]} />
                     </div>
                   ))}
                 </div>
               ) : (
-                <div className="rounded-xl bg-black/15 px-6 py-2 border border-white/5">
-                  <span className="text-[10px] uppercase tracking-widest text-emerald-600/60">Poker Fish</span>
+                <div className="rounded-xl bg-black/15 px-4 py-1.5 sm:px-6 sm:py-2 border border-white/5">
+                  <span className="text-[9px] sm:text-[10px] uppercase tracking-widest text-emerald-600/60">Poker Fish</span>
                 </div>
               )}
               {mainPot > 0 && (
-                <div className="flex items-center gap-1.5 rounded-full bg-black/30 px-3 py-1 backdrop-blur-sm border border-amber-500/20">
-                  <div className="w-3 h-3 rounded-full bg-gradient-to-br from-amber-400 to-amber-600 border border-amber-300/50 shadow-sm" />
-                  <span className="text-xs font-bold text-amber-300 tabular-nums">{mainPot}</span>
+                <div className="flex items-center gap-1 sm:gap-1.5 rounded-full bg-black/30 px-2 py-0.5 sm:px-3 sm:py-1 backdrop-blur-sm border border-amber-500/20">
+                  <div className="w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full bg-gradient-to-br from-amber-400 to-amber-600 border border-amber-300/50 shadow-sm" />
+                  <span className="text-[10px] sm:text-xs font-bold text-amber-300 tabular-nums">{mainPot}</span>
                 </div>
               )}
             </div>
@@ -352,8 +367,8 @@ export default function HandReplayPanel({
             {/* Player seats */}
             {replay.players.map((p, i) => {
               const angle = (i / n) * 2 * Math.PI - Math.PI / 2;
-              const rx = 47;
-              const ry = 43;
+              const rx = isMobile ? 43 : 47;
+              const ry = isMobile ? 45 : 43;
               const cx = 50 + rx * Math.cos(angle);
               const cy = 50 + ry * Math.sin(angle);
 
@@ -363,8 +378,8 @@ export default function HandReplayPanel({
               const stack = effectiveStacks.get(p.name) ?? p.stack;
               const isActor = lastActorName === p.name;
 
-              const betRx = 32;
-              const betRy = 28;
+              const betRx = isMobile ? 28 : 32;
+              const betRy = isMobile ? 30 : 28;
               const betCx = 50 + betRx * Math.cos(angle);
               const betCy = 50 + betRy * Math.sin(angle);
 
@@ -376,9 +391,9 @@ export default function HandReplayPanel({
                       className="absolute -translate-x-1/2 -translate-y-1/2 pointer-events-none z-20"
                       style={{ left: `${betCx}%`, top: `${betCy}%` }}
                     >
-                      <div className="flex items-center gap-1 rounded-full bg-black/40 border border-amber-500/30 px-1.5 py-0.5 backdrop-blur-sm">
-                        <div className="w-2 h-2 rounded-full bg-gradient-to-br from-amber-400 to-amber-600 shrink-0" />
-                        <span className="text-[10px] font-bold text-amber-300 tabular-nums">{bet}</span>
+                      <div className="flex items-center gap-0.5 sm:gap-1 rounded-full bg-black/40 border border-amber-500/30 px-1 py-0.5 sm:px-1.5 backdrop-blur-sm">
+                        <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-gradient-to-br from-amber-400 to-amber-600 shrink-0" />
+                        <span className="text-[8px] sm:text-[10px] font-bold text-amber-300 tabular-nums">{bet}</span>
                       </div>
                     </div>
                   )}
@@ -392,7 +407,7 @@ export default function HandReplayPanel({
                     {cards && !folded && (
                       <div className="flex gap-0.5 mb-0.5">
                         {cards.map((card, ci) => (
-                          <div key={ci} className="rounded bg-zinc-900 border border-zinc-600 px-1 py-0.5 text-xs font-bold shadow-sm">
+                          <div key={ci} className="rounded bg-zinc-900 border border-zinc-600 px-0.5 py-0.5 text-[10px] sm:px-1 sm:text-xs font-bold shadow-sm">
                             <CardPair cards={[card]} />
                           </div>
                         ))}
@@ -402,18 +417,18 @@ export default function HandReplayPanel({
                     <div
                       className={`rounded-lg text-center shadow-lg transition-all ${
                         folded
-                          ? "bg-zinc-800/80 border border-zinc-700/40 px-2 py-0.5 opacity-40"
+                          ? "bg-zinc-800/80 border border-zinc-700/40 px-1.5 py-0.5 opacity-40"
                           : isActor
-                          ? "bg-gradient-to-b from-zinc-700 to-zinc-800 border-2 border-amber-400 px-2.5 py-1 shadow-[0_0_12px_rgba(245,158,11,0.25)]"
-                          : "bg-gradient-to-b from-zinc-700 to-zinc-800 border border-zinc-500/60 px-2.5 py-1"
+                          ? "bg-gradient-to-b from-zinc-700 to-zinc-800 border-2 border-amber-400 px-1.5 py-0.5 sm:px-2.5 sm:py-1 shadow-[0_0_12px_rgba(245,158,11,0.25)]"
+                          : "bg-gradient-to-b from-zinc-700 to-zinc-800 border border-zinc-500/60 px-1.5 py-0.5 sm:px-2.5 sm:py-1"
                       }`}
                     >
-                      <div className={`text-[11px] font-bold leading-tight whitespace-nowrap ${
+                      <div className={`text-[9px] sm:text-[11px] font-bold leading-tight whitespace-nowrap ${
                         folded ? "text-zinc-500" : "text-zinc-100"
                       }`}>
                         {getDisplayName(p.name)}
                       </div>
-                      <div className={`text-[10px] tabular-nums leading-tight ${
+                      <div className={`text-[8px] sm:text-[10px] tabular-nums leading-tight ${
                         folded ? "text-zinc-600" : "text-zinc-400"
                       }`}>
                         {Math.round(stack * 100) / 100}

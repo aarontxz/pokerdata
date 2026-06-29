@@ -1732,6 +1732,7 @@ export default function PokerStats({
                 const nemesisName = nemesisEntry?.[0] ?? null;
                 const nemesisNet = nemesisEntry?.[1] ?? null;
                 const rowBg = i % 2 === 0 ? "bg-zinc-900/40" : "bg-zinc-900/10";
+                const stickyBg = i % 2 === 0 ? "bg-[#1c1c20]" : "bg-[#141417]";
                 return (
                   <tr
                     key={p.name}
@@ -1740,7 +1741,7 @@ export default function PokerStats({
                     {COLUMNS.map((col) => (
                       <td
                         key={String(col.key)}
-                        className={`px-2 py-2 sm:px-4 sm:py-3 ${col.key === "name" ? "whitespace-nowrap sticky left-0 z-10 " + rowBg : ""}`}
+                        className={`px-2 py-2 sm:px-4 sm:py-3 ${col.key === "name" ? "whitespace-nowrap sticky left-0 z-10 " + stickyBg : ""}`}
                       >
                         {renderCell(p, col.key, i, sorted.length)}
                       </td>
