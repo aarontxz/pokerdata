@@ -97,8 +97,16 @@ export default function HandReplayPanel({
   useEffect(() => {
     const el = actionListRef.current;
     if (!el) return;
-    const active = el.querySelector("[data-active]");
-    if (active) active.scrollIntoView({ block: "nearest" });
+    const active = el.querySelector("[data-active]") as HTMLElement | null;
+    if (active) {
+      const top = active.offsetTop - el.offsetTop;
+      const bottom = top + active.offsetHeight;
+      if (top < el.scrollTop) {
+        el.scrollTop = top;
+      } else if (bottom > el.scrollTop + el.clientHeight) {
+        el.scrollTop = bottom - el.clientHeight;
+      }
+    }
   }, [clampedStep]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
@@ -208,8 +216,12 @@ export default function HandReplayPanel({
   useEffect(() => {
     const el = handStripRef.current;
     if (!el || currentHandNumber === null) return;
-    const active = el.querySelector("[data-current-hand]");
-    if (active) active.scrollIntoView({ block: "nearest", inline: "center" });
+    const active = el.querySelector("[data-current-hand]") as HTMLElement | null;
+    if (active) {
+      const left = active.offsetLeft - el.offsetLeft;
+      const center = left - el.clientWidth / 2 + active.offsetWidth / 2;
+      el.scrollLeft = center;
+    }
   }, [currentHandNumber]);
 
   const hasReplay = !!replay;
