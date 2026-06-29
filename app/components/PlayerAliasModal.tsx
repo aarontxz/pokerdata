@@ -177,16 +177,16 @@ export default function PlayerAliasModal({
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="w-full max-w-5xl rounded-2xl border border-zinc-700 bg-zinc-900 shadow-2xl overflow-hidden">
-        <div className="px-6 py-4 border-b border-zinc-800 bg-zinc-950/80">
-          <h2 className="text-lg sm:text-xl font-semibold text-zinc-100">Merge Duplicate Player Names</h2>
-          <p className="text-sm text-zinc-400 mt-1">
-            Drag a player onto another player/group to merge them as the same person.
+    <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-end sm:items-center justify-center sm:p-4">
+      <div className="w-full sm:max-w-5xl rounded-t-2xl sm:rounded-2xl border border-zinc-700 bg-zinc-900 shadow-2xl overflow-hidden max-h-[90vh] sm:max-h-none flex flex-col">
+        <div className="px-4 py-3 sm:px-6 sm:py-4 border-b border-zinc-800 bg-zinc-950/80 shrink-0">
+          <h2 className="text-base sm:text-xl font-semibold text-zinc-100">Merge Duplicate Players</h2>
+          <p className="text-xs sm:text-sm text-zinc-400 mt-1">
+            Tap a player, then tap a group to merge. Or drag on desktop.
           </p>
         </div>
 
-        <div className="p-6 space-y-4 max-h-[65vh] overflow-y-auto">
+        <div className="p-3 sm:p-6 space-y-3 sm:space-y-4 overflow-y-auto flex-1">
           <div className="text-xs text-zinc-500">
             {groups.length} groups · {groupedCount} players merged
           </div>
@@ -214,7 +214,7 @@ export default function PlayerAliasModal({
               : "Drop here to pull a player out into a new separate group"}
           </div>
 
-          <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2 sm:gap-3">
             {groups.map((group, idx) => (
               <div
                 key={group.join("|")}
@@ -255,8 +255,8 @@ export default function PlayerAliasModal({
           </div>
         </div>
 
-        <div className="px-6 py-4 border-t border-zinc-800 bg-zinc-950/80 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
+        <div className="px-3 py-3 sm:px-6 sm:py-4 border-t border-zinc-800 bg-zinc-950/80 flex items-center justify-between gap-2 sm:gap-3 shrink-0">
+          <div className="flex items-center gap-1.5 sm:gap-2">
             <button
               type="button"
               onClick={() => {
@@ -264,21 +264,21 @@ export default function PlayerAliasModal({
                 setDragName(null);
                 setPickedName(null);
               }}
-              className="rounded-lg border border-green-700 bg-green-950/40 px-3 py-2 text-sm text-green-300 hover:bg-green-900/40"
+              className="rounded-lg border border-green-700 bg-green-950/40 px-2 py-1.5 sm:px-3 sm:py-2 text-xs sm:text-sm text-green-300 hover:bg-green-900/40"
             >
-              Auto Group
+              Auto
             </button>
             <button
               type="button"
               onClick={() => setGroups(initGroups(players))}
-              className="rounded-lg border border-zinc-600 px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-800"
+              className="rounded-lg border border-zinc-600 px-2 py-1.5 sm:px-3 sm:py-2 text-xs sm:text-sm text-zinc-300 hover:bg-zinc-800"
             >
               Reset
             </button>
             <button
               type="button"
               onClick={onSkip}
-              className="rounded-lg border border-zinc-600 px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-800"
+              className="rounded-lg border border-zinc-600 px-2 py-1.5 sm:px-3 sm:py-2 text-xs sm:text-sm text-zinc-300 hover:bg-zinc-800"
             >
               Skip
             </button>
@@ -287,7 +287,7 @@ export default function PlayerAliasModal({
           <button
             type="button"
             onClick={() => onDone(groups)}
-            className="rounded-lg bg-green-500 px-4 py-2 text-sm font-semibold text-zinc-950 hover:bg-green-400"
+            className="rounded-lg bg-green-500 px-3 py-1.5 sm:px-4 sm:py-2 text-xs sm:text-sm font-semibold text-zinc-950 hover:bg-green-400"
           >
             Done
           </button>

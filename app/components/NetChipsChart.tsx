@@ -351,17 +351,17 @@ export default function NetChipsChart({
         <button
           type="button"
           onClick={() => setChartVisible((v) => !v)}
-          className="flex w-full items-center justify-between px-4 py-3 bg-zinc-900/60 border-b border-zinc-800 hover:bg-zinc-900/80 transition-colors"
+          className="flex w-full items-center justify-between px-3 py-2 sm:px-4 sm:py-3 bg-zinc-900/60 border-b border-zinc-800 hover:bg-zinc-900/80 transition-colors"
         >
-          <span className="text-xs font-semibold uppercase tracking-wider text-zinc-400">
+          <span className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider text-zinc-400">
             Net Chips
           </span>
           <span className="text-zinc-500 text-sm">{chartVisible ? "▲" : "▼"}</span>
         </button>
 
       {chartVisible && (
-        <div className="flex gap-3 p-3">
-          <div className="flex-1 min-w-0 rounded-lg border border-zinc-700 bg-zinc-900/60 p-2 overflow-hidden">
+        <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 p-2 sm:p-3">
+          <div className="flex-1 min-w-0 rounded-lg border border-zinc-700 bg-zinc-900/60 p-1 sm:p-2 overflow-hidden">
             <svg
               ref={svgRef}
               viewBox={`0 0 ${CHART_W} ${CHART_H}`}
@@ -503,8 +503,8 @@ export default function NetChipsChart({
             </svg>
           </div>
 
-          <div className="w-48 shrink-0 rounded-lg border border-zinc-700 bg-zinc-900/60 overflow-hidden flex flex-col">
-            <div className="flex items-center justify-between px-3 py-2 border-b border-zinc-800">
+          <div className="sm:w-48 shrink-0 rounded-lg border border-zinc-700 bg-zinc-900/60 overflow-hidden flex flex-col">
+            <div className="flex items-center justify-between px-2 py-1.5 sm:px-3 sm:py-2 border-b border-zinc-800">
               <button
                 type="button"
                 onClick={() => {
@@ -520,11 +520,8 @@ export default function NetChipsChart({
               </button>
               <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">Net</span>
             </div>
-            <div className="px-3 py-1 border-b border-zinc-800">
-              <span className="text-xs text-zinc-500 italic">Click player to toggle</span>
-            </div>
-            <div className="flex-1 overflow-y-auto">
-              <div className="flex items-center gap-2 px-3 py-1">
+            <div className="flex-1 overflow-y-auto max-h-40 sm:max-h-none">
+              <div className="flex items-center gap-2 px-2 sm:px-3 py-1">
                 <span className="text-[10px] text-zinc-600 shrink-0">Selected</span>
                 <div className="flex-1 border-t border-zinc-700" />
               </div>
@@ -534,7 +531,7 @@ export default function NetChipsChart({
                   <button
                     key={row.name}
                     type="button"
-                    className="group flex w-full items-center gap-2 px-3 py-1.5 text-left transition-colors hover:bg-zinc-800/60 cursor-pointer"
+                    className="group flex w-full items-center gap-2 px-2 sm:px-3 py-1.5 text-left transition-colors hover:bg-zinc-800/60 cursor-pointer"
                     style={{ opacity: isHighlighted ? 1 : 0.4 }}
                     onClick={() => togglePlayer(row.name)}
                     onMouseEnter={() => setHoveredPlayer(row.name)}
@@ -544,11 +541,11 @@ export default function NetChipsChart({
                       className="h-2 w-2 shrink-0 rounded-full ring-1 ring-transparent group-hover:ring-zinc-500 transition-all"
                       style={{ backgroundColor: row.color }}
                     />
-                    <span className="flex-1 truncate text-xs text-zinc-300">
+                    <span className="flex-1 truncate text-[11px] sm:text-xs text-zinc-300">
                       {row.displayName}
                     </span>
                     <span
-                      className={`shrink-0 text-xs font-mono tabular-nums ${
+                      className={`shrink-0 text-[11px] sm:text-xs font-mono tabular-nums ${
                         row.net > 0 ? "text-green-400" : row.net < 0 ? "text-red-400" : "text-zinc-500"
                       }`}
                     >
@@ -557,7 +554,7 @@ export default function NetChipsChart({
                   </button>
                 );
               })}
-              <div className="flex items-center gap-2 px-3 py-1">
+              <div className="flex items-center gap-2 px-2 sm:px-3 py-1">
                 <span className="text-[10px] text-zinc-600 shrink-0">Hidden</span>
                 <div className="flex-1 border-t border-zinc-700" />
               </div>
@@ -565,18 +562,18 @@ export default function NetChipsChart({
                 <button
                   key={row.name}
                   type="button"
-                  className="group flex w-full items-center gap-2 px-3 py-1.5 text-left transition-colors hover:bg-zinc-800/60 cursor-pointer"
+                  className="group flex w-full items-center gap-2 px-2 sm:px-3 py-1.5 text-left transition-colors hover:bg-zinc-800/60 cursor-pointer"
                   onClick={() => togglePlayer(row.name)}
                 >
                   <span
                     className="h-2 w-2 shrink-0 rounded-full ring-1 ring-transparent group-hover:ring-zinc-500 transition-all"
                     style={{ backgroundColor: row.color }}
                   />
-                  <span className="flex-1 truncate text-xs text-zinc-300">
+                  <span className="flex-1 truncate text-[11px] sm:text-xs text-zinc-300">
                     {row.displayName}
                   </span>
                   <span
-                    className={`shrink-0 text-xs font-mono tabular-nums ${
+                    className={`shrink-0 text-[11px] sm:text-xs font-mono tabular-nums ${
                       row.net > 0 ? "text-green-400" : row.net < 0 ? "text-red-400" : "text-zinc-500"
                     }`}
                   >

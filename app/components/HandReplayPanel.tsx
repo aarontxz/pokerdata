@@ -217,7 +217,7 @@ export default function HandReplayPanel({
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center justify-between px-4 py-3 bg-zinc-900/60 border-b border-zinc-800 hover:bg-zinc-900/80 transition-colors"
+        className="flex w-full items-center justify-between px-3 py-2 sm:px-4 sm:py-3 bg-zinc-900/60 border-b border-zinc-800 hover:bg-zinc-900/80 transition-colors"
       >
         <div className="flex items-center gap-3">
           <span className="text-xs font-semibold uppercase tracking-wider text-zinc-400">
@@ -253,7 +253,7 @@ export default function HandReplayPanel({
 
           {/* ── Focus Player Hand Strip ── */}
           {hasStrip && (
-            <div className="px-4 pt-3 pb-1">
+            <div className="px-2 pt-2 pb-1 sm:px-4 sm:pt-3">
               <div className="flex items-center gap-2 mb-1.5">
                 <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">Player Hands</span>
                 <span className="text-[10px] text-zinc-600 tabular-nums">{selfHands.length} hands</span>
@@ -304,6 +304,21 @@ export default function HandReplayPanel({
           {/* ── Poker Table ── */}
           {replay && (<>
           <div className="relative mx-auto my-4 select-none" style={{ width: "100%", maxWidth: 560, aspectRatio: "56/38" }}>
+            {/* Tap zones — mobile only */}
+            <div
+              className="absolute inset-y-0 left-0 w-1/2 z-30 sm:hidden"
+              onClick={() => {
+                if (clampedStep > 0) setStep(clampedStep - 1);
+                else if (prevHandNumber !== null) onHandChange(prevHandNumber);
+              }}
+            />
+            <div
+              className="absolute inset-y-0 right-0 w-1/2 z-30 sm:hidden"
+              onClick={() => {
+                if (clampedStep < totalSteps) setStep(clampedStep + 1);
+                else if (nextHandNumber !== null) onHandChange(nextHandNumber);
+              }}
+            />
             {/* Table rim */}
             <div className="absolute inset-2 rounded-[50%] bg-gradient-to-b from-amber-950/60 to-amber-950/30 border border-amber-900/40" />
             {/* Table rail */}
@@ -411,13 +426,13 @@ export default function HandReplayPanel({
           </div>
 
           {/* ── Controls ── */}
-          <div className="px-4 pb-3">
-            <div className="flex items-center gap-1.5 mb-3">
+          <div className="px-2 pb-2 sm:px-4 sm:pb-3">
+            <div className="flex items-center gap-1 sm:gap-1.5 mb-2 sm:mb-3">
               <button
                 type="button"
                 onClick={() => { if (prevHandNumber !== null) onHandChange(prevHandNumber); }}
                 disabled={prevHandNumber === null}
-                className="rounded-lg border border-zinc-700 bg-zinc-800 px-2.5 py-1.5 text-xs font-medium text-zinc-300 hover:bg-zinc-700 disabled:opacity-25 disabled:cursor-default transition-colors whitespace-nowrap"
+                className="rounded-lg border border-zinc-700 bg-zinc-800 px-2 py-2 sm:px-2.5 sm:py-1.5 text-xs font-medium text-zinc-300 hover:bg-zinc-700 disabled:opacity-25 disabled:cursor-default transition-colors whitespace-nowrap"
               >
                 ◀◀
               </button>
@@ -425,7 +440,7 @@ export default function HandReplayPanel({
                 <button
                   type="button"
                   onClick={() => setStep(clampedStep - 1)}
-                  className="rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-xs font-bold text-zinc-300 hover:bg-zinc-700 transition-colors"
+                  className="rounded-lg border border-zinc-700 bg-zinc-800 px-2.5 py-2 sm:px-3 sm:py-1.5 text-xs font-bold text-zinc-300 hover:bg-zinc-700 transition-colors"
                 >
                   ◀
                 </button>
@@ -434,7 +449,7 @@ export default function HandReplayPanel({
                   type="button"
                   onClick={() => { if (prevHandNumber !== null) onHandChange(prevHandNumber); }}
                   disabled={prevHandNumber === null}
-                  className="rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-xs font-bold text-zinc-300 hover:bg-zinc-700 disabled:opacity-25 disabled:cursor-default transition-colors"
+                  className="rounded-lg border border-zinc-700 bg-zinc-800 px-2.5 py-2 sm:px-3 sm:py-1.5 text-xs font-bold text-zinc-300 hover:bg-zinc-700 disabled:opacity-25 disabled:cursor-default transition-colors"
                 >
                   ◀
                 </button>
@@ -451,7 +466,7 @@ export default function HandReplayPanel({
                 <button
                   type="button"
                   onClick={() => setStep(clampedStep + 1)}
-                  className="rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-xs font-bold text-zinc-300 hover:bg-zinc-700 transition-colors"
+                  className="rounded-lg border border-zinc-700 bg-zinc-800 px-2.5 py-2 sm:px-3 sm:py-1.5 text-xs font-bold text-zinc-300 hover:bg-zinc-700 transition-colors"
                 >
                   ▶
                 </button>
@@ -460,7 +475,7 @@ export default function HandReplayPanel({
                   type="button"
                   onClick={() => { if (nextHandNumber !== null) onHandChange(nextHandNumber); }}
                   disabled={nextHandNumber === null}
-                  className="rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-xs font-bold text-zinc-300 hover:bg-zinc-700 disabled:opacity-25 disabled:cursor-default transition-colors"
+                  className="rounded-lg border border-zinc-700 bg-zinc-800 px-2.5 py-2 sm:px-3 sm:py-1.5 text-xs font-bold text-zinc-300 hover:bg-zinc-700 disabled:opacity-25 disabled:cursor-default transition-colors"
                 >
                   ▶
                 </button>
@@ -469,17 +484,17 @@ export default function HandReplayPanel({
                 type="button"
                 onClick={() => { if (nextHandNumber !== null) onHandChange(nextHandNumber); }}
                 disabled={nextHandNumber === null}
-                className="rounded-lg border border-zinc-700 bg-zinc-800 px-2.5 py-1.5 text-xs font-medium text-zinc-300 hover:bg-zinc-700 disabled:opacity-25 disabled:cursor-default transition-colors whitespace-nowrap"
+                className="rounded-lg border border-zinc-700 bg-zinc-800 px-2 py-2 sm:px-2.5 sm:py-1.5 text-xs font-medium text-zinc-300 hover:bg-zinc-700 disabled:opacity-25 disabled:cursor-default transition-colors whitespace-nowrap"
               >
                 ▶▶
               </button>
-              <span className="text-[11px] text-zinc-500 tabular-nums whitespace-nowrap ml-1">{clampedStep}/{totalSteps}</span>
+              <span className="text-[10px] sm:text-[11px] text-zinc-500 tabular-nums whitespace-nowrap ml-0.5 sm:ml-1">{clampedStep}/{totalSteps}</span>
             </div>
 
             {/* ── Action log ── */}
             <div
               ref={actionListRef}
-              className="max-h-44 overflow-y-auto rounded-lg border border-zinc-700/80 bg-zinc-900/80"
+              className="max-h-36 sm:max-h-44 overflow-y-auto rounded-lg border border-zinc-700/80 bg-zinc-900/80"
             >
               {replay.actions.map((a, i) => {
                 const isActive = i === clampedStep - 1;

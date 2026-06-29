@@ -37,21 +37,21 @@ export default function PlayerNemesisModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/70 sm:p-4"
       onClick={onClose}
     >
       <div
-        className="relative w-full max-w-md rounded-2xl border border-zinc-700 bg-zinc-900 shadow-2xl overflow-hidden"
+        className="relative w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl border border-zinc-700 bg-zinc-900 shadow-2xl overflow-hidden max-h-[85vh] sm:max-h-none flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-zinc-800 px-5 py-4">
+        <div className="flex items-center justify-between border-b border-zinc-800 px-3 py-3 sm:px-5 sm:py-4 shrink-0">
           <div>
-            <h2 className="text-base font-bold text-zinc-100">
-              {playerName} — Head-to-Head
+            <h2 className="text-sm sm:text-base font-bold text-zinc-100">
+              {playerName} — H2H
             </h2>
             {rows[0] && rows[0].net < 0 && (
-              <p className="text-xs text-red-400 mt-0.5">
+              <p className="text-[10px] sm:text-xs text-red-400 mt-0.5">
                 Nemesis: <span className="font-semibold">{getDisplayName(rows[0].oppName)}</span>
                 {" "}({sign(rows[0].net)})
               </p>
@@ -67,7 +67,7 @@ export default function PlayerNemesisModal({
         </div>
 
         {/* Table */}
-        <div className="overflow-y-auto max-h-[60vh]">
+        <div className="overflow-y-auto flex-1">
           {rows.length === 0 ? (
             <p className="px-5 py-6 text-sm text-zinc-400">No head-to-head data available.</p>
           ) : (
@@ -102,7 +102,7 @@ export default function PlayerNemesisModal({
         </div>
 
         {/* Footer: total should equal player's net */}
-        <div className="border-t border-zinc-800 px-5 py-3 flex justify-between items-center text-xs text-zinc-400">
+        <div className="border-t border-zinc-800 px-3 py-2.5 sm:px-5 sm:py-3 flex justify-between items-center text-xs text-zinc-400 shrink-0">
           <span>{rows.length} opponent{rows.length !== 1 ? "s" : ""}</span>
           <span>
             Total:{" "}

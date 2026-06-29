@@ -73,23 +73,23 @@ export default function PlayerWSDModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/70 sm:p-4 backdrop-blur-sm"
       onClick={onClose}
       role="dialog"
       aria-modal="true"
       aria-label={`Showdowns for ${playerName}`}
     >
       <div
-        className="w-full max-w-5xl rounded-2xl border border-zinc-800 bg-zinc-900 shadow-2xl"
+        className="w-full sm:max-w-5xl rounded-t-2xl sm:rounded-2xl border border-zinc-800 bg-zinc-900 shadow-2xl max-h-[85vh] sm:max-h-none flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between border-b border-zinc-800 px-4 py-3">
+        <div className="flex items-center justify-between border-b border-zinc-800 px-3 py-2.5 sm:px-4 sm:py-3 shrink-0">
           <div>
-            <h3 className="text-sm font-semibold text-zinc-100">
+            <h3 className="text-xs sm:text-sm font-semibold text-zinc-100">
               Showdowns: {playerName}
             </h3>
-            <p className="text-xs text-zinc-400">
-              {records.length} showdown{records.length === 1 ? "" : "s"} · {wins} won · {draws} draw{draws === 1 ? "" : "s"}
+            <p className="text-[10px] sm:text-xs text-zinc-400">
+              {records.length} showdown{records.length === 1 ? "" : "s"} · {wins}W · {draws}D
               {records.length > 0
                 ? ` (${((wins / records.length) * 100).toFixed(1)}% WSD)`
                 : ""}
@@ -98,13 +98,13 @@ export default function PlayerWSDModal({
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg border border-zinc-700 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800"
+            className="rounded-lg border border-zinc-700 px-2.5 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800"
           >
             Close
           </button>
         </div>
 
-        <div className="max-h-[75vh] overflow-y-auto p-4">
+        <div className="overflow-y-auto p-2 sm:p-4 flex-1">
           {records.length === 0 ? (
             <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 px-3 py-2 text-sm text-zinc-400">
               No showdowns recorded for this player.

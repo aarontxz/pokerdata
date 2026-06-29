@@ -1294,7 +1294,7 @@ export default function PokerStats({
   }
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-100 p-6 font-sans">
+    <div className="min-h-screen bg-zinc-950 text-zinc-100 px-3 py-4 sm:p-6 font-sans">
       <input
         ref={inputRef}
         type="file"
@@ -1309,7 +1309,7 @@ export default function PokerStats({
         }}
       />
 
-      <h1 className="text-2xl font-bold mb-1 text-green-400"><SuitText suit="♠" /> Poker Fish</h1>
+      <h1 className="text-xl sm:text-2xl font-bold mb-1 text-green-400"><SuitText suit="♠" /> Poker Fish</h1>
       {!rawStats ? (
         <>
           <p className="text-zinc-400 text-sm mb-6">
@@ -1319,7 +1319,7 @@ export default function PokerStats({
             role="button"
             tabIndex={0}
             aria-label="Upload poker log file"
-            className={`flex flex-col items-center justify-center gap-2 border-2 border-dashed rounded-xl p-10 cursor-pointer transition-colors
+            className={`flex flex-col items-center justify-center gap-2 border-2 border-dashed rounded-xl p-6 sm:p-10 cursor-pointer transition-colors
               ${dragging ? "border-green-400 bg-green-950/30" : "border-zinc-700 hover:border-zinc-500 bg-zinc-900"}`}
             onDrop={onDrop}
             onDragOver={onDragOver}
@@ -1341,19 +1341,19 @@ export default function PokerStats({
           </div>
         </>
       ) : (
-        <div className="flex flex-col gap-3 rounded-xl border border-zinc-800 bg-zinc-900/30 p-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-col gap-2 rounded-xl border border-zinc-800 bg-zinc-900/30 p-2 sm:p-3 sm:gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
             <button
               type="button"
               onClick={() => setAliasModalOpen(true)}
-              className="rounded-lg border border-green-700 bg-green-950/40 px-3 py-2 text-sm font-semibold text-green-300 hover:bg-green-900/40"
+              className="rounded-lg border border-green-700 bg-green-950/40 px-2 py-1.5 text-xs sm:px-3 sm:py-2 sm:text-sm font-semibold text-green-300 hover:bg-green-900/40"
             >
-              Manually Group Same Players
+              Group Players
             </button>
             <button
               type="button"
               onClick={autoGroupPlayers}
-              className="rounded-lg bg-green-500 px-3 py-2 text-sm font-semibold text-zinc-950 hover:bg-green-400"
+              className="rounded-lg bg-green-500 px-2 py-1.5 text-xs sm:px-3 sm:py-2 sm:text-sm font-semibold text-zinc-950 hover:bg-green-400"
             >
               Auto Group
             </button>
@@ -1363,13 +1363,13 @@ export default function PokerStats({
                 uploadModeRef.current = "append";
                 inputRef.current?.click();
               }}
-              className="rounded-lg border border-sky-700 bg-sky-950/40 px-3 py-2 text-sm font-semibold text-sky-300 hover:bg-sky-900/40"
+              className="rounded-lg border border-sky-700 bg-sky-950/40 px-2 py-1.5 text-xs sm:px-3 sm:py-2 sm:text-sm font-semibold text-sky-300 hover:bg-sky-900/40"
             >
-              Add More Files
+              Add Files
             </button>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 sm:justify-end">
             <button
               type="button"
               onClick={() => {
@@ -1391,9 +1391,9 @@ export default function PokerStats({
                 setCopied(true);
                 setTimeout(() => setCopied(false), 2000);
               }}
-              className="w-32 rounded-lg border border-blue-700 bg-blue-950/40 px-3 py-2 text-sm font-semibold text-blue-300 hover:bg-blue-900/40"
+              className="rounded-lg border border-blue-700 bg-blue-950/40 px-2 py-1.5 text-xs sm:px-3 sm:py-2 sm:text-sm font-semibold text-blue-300 hover:bg-blue-900/40"
             >
-              {copied ? "✓ Copied!" : "Copy Ledger"}
+              {copied ? "✓ Copied!" : "Ledger"}
             </button>
             <button
               type="button"
@@ -1411,7 +1411,7 @@ export default function PokerStats({
                 void handleShare();
               }}
               disabled={shareState.status === "saving" || loadedSessions.length === 0}
-              className="w-36 rounded-lg border border-purple-700 bg-purple-950/40 px-3 py-2 text-sm font-semibold text-purple-300 hover:bg-purple-900/40 disabled:opacity-50"
+              className="rounded-lg border border-purple-700 bg-purple-950/40 px-2 py-1.5 text-xs sm:px-3 sm:py-2 sm:text-sm font-semibold text-purple-300 hover:bg-purple-900/40 disabled:opacity-50"
               title={
                 shareState.status === "saved"
                   ? shareState.url
@@ -1422,14 +1422,14 @@ export default function PokerStats({
                 ? "Saving…"
                 : shareState.status === "saved"
                 ? shareCopied
-                  ? "✓ Link Copied!"
-                  : "Copy Share Link"
-                : "Share Snapshot"}
+                  ? "✓ Copied!"
+                  : "Share Link"
+                : "Share"}
             </button>
             <button
               type="button"
               onClick={clearAll}
-              className="rounded-lg border border-red-700 bg-red-950/40 px-3 py-2 text-sm font-semibold text-red-300 hover:bg-red-900/40"
+              className="rounded-lg border border-red-700 bg-red-950/40 px-2 py-1.5 text-xs sm:px-3 sm:py-2 sm:text-sm font-semibold text-red-300 hover:bg-red-900/40"
             >
               Clear
             </button>
@@ -1568,21 +1568,21 @@ export default function PokerStats({
         }
 
         return (
-          <div className="mt-3 rounded-xl border border-zinc-800 bg-zinc-900/30 p-3">
-            <div className="flex items-center justify-between mb-2">
+          <div className="mt-3 rounded-xl border border-zinc-800 bg-zinc-900/30 p-2 sm:p-3">
+            <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between mb-2">
               <div className="flex items-center gap-2">
-                <span className="text-xs font-semibold uppercase tracking-wider text-zinc-400">
+                <span className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider text-zinc-400">
                   Time Machine
                 </span>
                 {isActive && (
-                  <span className="text-xs text-amber-400">
-                    Sheet {currentSheet}, Hand {currentHand} of {maxHandForSheet}
+                  <span className="text-[10px] sm:text-xs text-amber-400">
+                    Sheet {currentSheet}, Hand {currentHand}/{maxHandForSheet}
                   </span>
                 )}
               </div>
               {loadedSessions.length > 1 && (
-                <div className="flex items-center gap-2">
-                  <span className="text-sm text-zinc-500">Sheet</span>
+                <div className="flex items-center gap-1.5 sm:gap-2">
+                  <span className="text-xs sm:text-sm text-zinc-500">Sheet</span>
                   <input
                     type="number"
                     min={1}
@@ -1592,14 +1592,14 @@ export default function PokerStats({
                       const v = parseInt(e.target.value);
                       if (!Number.isNaN(v)) handleSheetChange(v);
                     }}
-                    className="w-20 rounded border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-sm text-zinc-200 text-center tabular-nums"
+                    className="w-14 sm:w-20 rounded border border-zinc-700 bg-zinc-800 px-1.5 py-1 sm:px-2 sm:py-1.5 text-xs sm:text-sm text-zinc-200 text-center tabular-nums"
                   />
-                  <span className="text-sm text-zinc-500 tabular-nums">/ {loadedSessions.length}</span>
+                  <span className="text-xs sm:text-sm text-zinc-500 tabular-nums">/ {loadedSessions.length}</span>
                 </div>
               )}
             </div>
 
-            <div className="flex items-center gap-3 mb-2">
+            <div className="flex items-center gap-2 sm:gap-3 mb-2">
               <input
                 type="range"
                 min={1}
@@ -1609,8 +1609,8 @@ export default function PokerStats({
                 className="flex-1 accent-amber-500"
                 disabled={maxHandForSheet === 0}
               />
-              <div className="w-48 shrink-0 flex items-center gap-2">
-                <span className="text-sm text-zinc-500">Hand</span>
+              <div className="shrink-0 flex items-center gap-1 sm:gap-2">
+                <span className="text-xs sm:text-sm text-zinc-500">Hand</span>
                 <input
                   type="number"
                   min={1}
@@ -1620,10 +1620,10 @@ export default function PokerStats({
                     const v = parseInt(e.target.value);
                     if (!Number.isNaN(v)) handleHandChange(v);
                   }}
-                  className="w-20 rounded border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-sm text-zinc-200 text-center tabular-nums"
+                  className="w-14 sm:w-20 rounded border border-zinc-700 bg-zinc-800 px-1.5 py-1 sm:px-2 sm:py-1.5 text-xs sm:text-sm text-zinc-200 text-center tabular-nums"
                   disabled={maxHandForSheet === 0}
                 />
-                <span className="text-sm text-zinc-500 tabular-nums">/ {maxHandForSheet}</span>
+                <span className="text-xs sm:text-sm text-zinc-500 tabular-nums">/ {maxHandForSheet}</span>
               </div>
             </div>
 
@@ -1690,17 +1690,18 @@ export default function PokerStats({
       />
 
       {sorted && (
-        <div className="mt-6 overflow-x-auto rounded-xl border border-zinc-800">
-          <table className="w-full text-sm">
+        <div className="mt-4 sm:mt-6 overflow-x-auto rounded-xl border border-zinc-800">
+          <table className="w-full text-xs sm:text-sm">
             <thead>
-              <tr className="bg-zinc-900 text-zinc-400 uppercase text-xs tracking-wider">
+              <tr className="bg-zinc-900 text-zinc-400 uppercase text-[10px] sm:text-xs tracking-wider">
                 {COLUMNS.map((col) => (
                   <th
                     key={col.key}
                     title={col.title}
                     onClick={() => toggleSort(col.key)}
-                    className={`px-4 py-3 cursor-pointer select-none whitespace-nowrap text-left transition-colors hover:text-zinc-100
-                      ${sortKey === col.key ? "text-green-400" : ""}`}
+                    className={`px-2 py-2 sm:px-4 sm:py-3 cursor-pointer select-none whitespace-nowrap text-left transition-colors hover:text-zinc-100 ${
+                      col.key === "name" ? "sticky left-0 z-10 bg-zinc-900" : ""
+                    } ${sortKey === col.key ? "text-green-400" : ""}`}
                   >
                     {col.label}
                     {sortKey === col.key && (
@@ -1711,7 +1712,7 @@ export default function PokerStats({
                 <th
                   title="Player you've lost the most chips to — click to sort"
                   onClick={() => toggleSort("nemesis")}
-                  className={`px-4 py-3 cursor-pointer select-none whitespace-nowrap text-left uppercase text-xs tracking-wider transition-colors hover:text-zinc-100 ${
+                  className={`px-2 py-2 sm:px-4 sm:py-3 cursor-pointer select-none whitespace-nowrap text-left uppercase text-[10px] sm:text-xs tracking-wider transition-colors hover:text-zinc-100 ${
                     sortKey === "nemesis" ? "text-green-400" : "text-zinc-400"
                   }`}
                 >
@@ -1730,21 +1731,21 @@ export default function PokerStats({
                   .sort(([, a], [, b]) => a - b)[0];
                 const nemesisName = nemesisEntry?.[0] ?? null;
                 const nemesisNet = nemesisEntry?.[1] ?? null;
+                const rowBg = i % 2 === 0 ? "bg-zinc-900/40" : "bg-zinc-900/10";
                 return (
                   <tr
                     key={p.name}
-                    className={`border-t border-zinc-800 transition-colors hover:bg-zinc-800/50
-                      ${i % 2 === 0 ? "bg-zinc-900/40" : "bg-zinc-900/10"}`}
+                    className={`border-t border-zinc-800 transition-colors hover:bg-zinc-800/50 ${rowBg}`}
                   >
                     {COLUMNS.map((col) => (
                       <td
                         key={String(col.key)}
-                        className={`px-4 py-3 ${col.key === "name" ? "whitespace-nowrap" : ""}`}
+                        className={`px-2 py-2 sm:px-4 sm:py-3 ${col.key === "name" ? "whitespace-nowrap sticky left-0 z-10 " + rowBg : ""}`}
                       >
                         {renderCell(p, col.key, i, sorted.length)}
                       </td>
                     ))}
-                    <td className="px-4 py-3 whitespace-nowrap">
+                    <td className="px-2 py-2 sm:px-4 sm:py-3 whitespace-nowrap">
                       {nemesisName ? (
                         <button
                           type="button"
@@ -1785,8 +1786,8 @@ export default function PokerStats({
               })}
             </tbody>
           </table>
-          <div className="px-4 py-2 bg-zinc-900 border-t border-zinc-800 text-xs text-zinc-500">
-            {sorted.length} players · click a column header to sort
+          <div className="px-2 py-1.5 sm:px-4 sm:py-2 bg-zinc-900 border-t border-zinc-800 text-[10px] sm:text-xs text-zinc-500">
+            {sorted.length} players · tap a column header to sort
           </div>
         </div>
       )}
@@ -1833,7 +1834,7 @@ export default function PokerStats({
       />
 
       {sorted && (
-        <div className="mt-4 grid grid-cols-2 gap-3 text-xs text-zinc-500 sm:grid-cols-3 lg:grid-cols-6">
+        <div className="mt-4 hidden sm:grid grid-cols-2 gap-3 text-xs text-zinc-500 sm:grid-cols-3 lg:grid-cols-6">
           <div><span className="text-zinc-400 font-medium">Buy-in</span> — total chips bought in (incl. rebuys)</div>
           <div><span className="text-zinc-400 font-medium">Cash Out</span> — chips removed by stack adjustment</div>
           <div><span className="text-zinc-400 font-medium">Final</span> — chip stack at end of session</div>
@@ -1848,7 +1849,7 @@ export default function PokerStats({
         </div>
       )}
 
-      <p className="mt-8 rounded-lg border border-amber-800/70 bg-amber-950/30 px-4 py-3 text-sm text-amber-100">
+      <p className="mt-6 sm:mt-8 rounded-lg border border-amber-800/70 bg-amber-950/30 px-3 py-2.5 sm:px-4 sm:py-3 text-xs sm:text-sm text-amber-100">
         If you live in Singapore and want to help fund the creator of this project, consider sending a tip via PayNow to
         {" "} <span className="font-semibold tracking-wide">91069528</span>, under the comments put pokerfish! :D
       </p>
