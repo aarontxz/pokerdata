@@ -730,6 +730,14 @@ export default function PokerStats({
     );
     setSelectedNameByPlayer(initialSnapshot.selectedNameByPlayer ?? {});
     setSelfPlayerName(initialSnapshot.selfPlayerName ?? null);
+
+    const lastSession = initialSnapshot.sessions[initialSnapshot.sessions.length - 1];
+    if (lastSession && lastSession.totalHands > 0) {
+      const lastSheet = initialSnapshot.sessions.length;
+      const lastHand = lastSession.totalHands;
+      setTimelineSheet(lastSheet);
+      setTimelineHand(lastHand);
+    }
   }, [initialSnapshot, applySessions]);
 
   const handleFiles = useCallback(async (files: FileList | File[], mode: UploadMode = "replace") => {
