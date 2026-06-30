@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { randomBytes } from "node:crypto";
+import { gunzipSync } from "node:zlib";
 import { ensureSchema, query } from "../../lib/db";
 import type { SnapshotPayload } from "../../lib/snapshotTypes";
 
@@ -24,12 +25,18 @@ function isValidPayload(body: unknown): body is SnapshotPayload {
 }
 
 // Reject absurdly large payloads to avoid abuse.
-const MAX_PAYLOAD_BYTES = 10 * 1024 * 1024; // 10 MB
+const MAX_PAYLOAD_BYTES = 10 * 1024 * 1024; // 10 MB (decompressed)
+const MAX_COMPRESSED_BYTES = 5 * 1024 * 1024; // 5 MB (on the wire)
 
 export async function POST(request: Request) {
   let body: unknown;
   try {
-    const text = await request.text();
+    const raw = Buffer.from(await request.arrayBuffer());
+    if (raw.length > MAX_COMPRESSED_BYTES) {
+      return NextResponse.json({ error: "Snapshot too large" }, { status: 413 });
+    }
+    const isGzip = request.headers.get("content-encoding") === "gzip";
+    const text = (isGzip ? gunzipSync(raw) : raw).toString("utf-8");
     if (text.length > MAX_PAYLOAD_BYTES) {
       return NextResponse.json({ error: "Snapshot too large" }, { status: 413 });
     }

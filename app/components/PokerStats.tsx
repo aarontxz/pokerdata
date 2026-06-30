@@ -828,10 +828,20 @@ export default function PokerStats({
         selectedNameByPlayer,
         selfPlayerName,
       };
+      const json = JSON.stringify(payload);
+      let body: BodyInit = json;
+      const headers: Record<string, string> = { "content-type": "application/json" };
+      if (typeof CompressionStream !== "undefined") {
+        const stream = new Blob([json])
+          .stream()
+          .pipeThrough(new CompressionStream("gzip"));
+        body = await new Response(stream).blob();
+        headers["content-encoding"] = "gzip";
+      }
       const res = await fetch("/api/snapshots", {
         method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(payload),
+        headers,
+        body,
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
